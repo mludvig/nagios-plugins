@@ -155,38 +155,35 @@ sub query($$$$)
 	return ($ret, undef) if (@$ret > 0);
 
 	@ns_old = $res->nameservers;
-	$res->nameservers(@$nameservers) if ($nameservers);
+	if ($nameservers) {
+		$res->nameservers(@$nameservers);
+		print_debug("Nameservers set to: ".join(",", @$nameservers)."\n");
+	}
 
 	my $packet = $res->send($name, $type);
 
 	update_cache($cache, $packet);
+	$ret = lookup_cache($cache, $name, $type);
 
 	$res->nameservers(@ns_old);
-
-	$ret = lookup_cache($cache, $name, $type);
 
 	return ($ret, $packet);
 }
 
-sub resolve_hostnames($$)
+sub resolve_hostnames($$$)
 {
-	my ($hostnames,$nameservers) = @_;
+	my ($hostnames,$nameservers,$cache) = @_;
 	my $addrs = [];
-	my @nameservers_old = $res->nameservers;
-	$res->nameservers(@$nameservers);
 	foreach my $hostname (@$hostnames) {
-		my ($rr, $packet, $ret);
-		$packet = $res->send($hostname, "AAAA");
-		$ret = find_rr_all("AAAA", $packet);
-		foreach $rr (@$ret)
-			{ push (@$addrs, $rr->{address}); }
-		$packet = $res->send($hostname, "A");
-		$ret = find_rr_all("A", $packet);
-		foreach $rr (@$ret)
-			{ push (@$addrs, $rr->{address}); }
+		my ($addr, $packet, $ret);
+		($ret, $packet) = query($hostname, "AAAA", $nameservers, $cache);
+		foreach $addr (@$ret)
+			{ push (@$addrs, $addr); }
+		($ret, $packet) = query($hostname, "A", $nameservers, $cache);
+		foreach $addr (@$ret)
+			{ push (@$addrs, $addr); }
 	}
-	$res->nameservers(@nameservers_old);
-	print_debug("Addresses for (".join(",", @$hostnames)."): ".join(",", @$addrs)."\n");
+	#print_debug("Addresses for (".join(",", @$hostnames)."): ".join(",", @$addrs)."\n");
 	return $addrs;
 }
 
@@ -211,7 +208,7 @@ sub update_cache($$)
 	return if (not $packet);
 	foreach $rr ($packet->answer, $packet->authority, $packet->additional) {
 		if ($rr->type eq "A" or $rr->type eq "AAAA") {
-			update_cache_helper($cache, $rr->name, "A", $rr->address);
+			update_cache_helper($cache, $rr->name, $rr->type, $rr->address);
 			next;
 		}
 		if ($rr->type eq "NS") {
@@ -219,7 +216,7 @@ sub update_cache($$)
 			next;
 		}
 	}
-	#print Data::Dumper->Dump([$cache]);
+	#print Data::Dumper->Dump([$cache], ["cache"]);
 }
 
 sub lookup_cache($$$)
