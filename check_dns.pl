@@ -298,7 +298,7 @@ sub main()
 	# Get list of nameservers from TLD
 	my @tmp = split("\\.", $domain);
 	shift(@tmp); 
-	my $tld = join(".", @tmp).".";
+	my $tld = join(".", @tmp);
 
 	# Fetch NS list for TLD from our recursive NS
 	($tld_nslist, $packet) = query($tld, "NS", \@nameservers, \%cache);
