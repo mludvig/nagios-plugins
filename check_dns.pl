@@ -237,10 +237,10 @@ sub main()
 	my %results;
 
 	# Cache for results obtained from recursive nameservers
-	my %cache;
+	my $cache = {};
 
 	# Cache for results obtained from TLD nameserver
-	my %cache_tld;
+	my $cache_tld = {};
 
 	# CLI options-vars
 	my ($domain, @nameservers, $master,
@@ -278,7 +278,7 @@ sub main()
 
 	print_info("Using recursive nameserver(s): ".join(" ", @nameservers)."\n");
 
-	($ret, $packet) = query($domain, "SOA", \@nameservers, \%cache);
+	($ret, $packet) = query($domain, "SOA", \@nameservers, $cache);
 	my $soa = find_rr("SOA", $packet);
 
 	if (! $soa) {
@@ -301,13 +301,13 @@ sub main()
 	my $tld = join(".", @tmp);
 
 	# Fetch NS list for TLD from our recursive NS
-	($tld_nslist, $packet) = query($tld, "NS", \@nameservers, \%cache);
+	($tld_nslist, $packet) = query($tld, "NS", \@nameservers, $cache);
 	print_debug("$tld nameservers hostnames: ".join(", ", @$tld_nslist)."\n");
-	$addrlist = resolve_hostnames($tld_nslist, \@nameservers);
+	$addrlist = resolve_hostnames($tld_nslist, \@nameservers, $cache);
 
 	# Query TLD nameservers for a list of authoritative nameservers for our domain
 	print_debug("Querying $tld to get NS list for $domain\n");
-	($ret, $packet) = query($domain, "NS", $addrlist, \%cache_tld);
+	($ret, $packet) = query($domain, "NS", $addrlist, $cache_tld);
 	$results{'domain_nslist_from_tld'} = $ret;
 
 	if (not $results{'domain_nslist_from_tld'}) {
