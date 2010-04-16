@@ -32,9 +32,48 @@ my $EXIT_UNKNOWN = 3;
 # Some global vars
 my $res;
 my $verbose = 0;
+my $critical_messages = [];
+my $warning_messages = [];
+
+# CLI options-vars
+my ($domain, @nameservers, $master,
+    $no_warn_aa);
+
+GetOptions(
+	'd|domain=s' => \$domain,
+	'ns|nameserver=s' => \@nameservers,
+	'master=s' => \$master,
+	'v|verbose+' => \$verbose,
+	'no-warn-aa' => \$no_warn_aa,
+);
 
 &main();
-&exit_unknown("Eh?\n");
+
+my $retval = $EXIT_OK;
+my $retmsg = "OK";
+if (@$warning_messages) {
+	$retval = $EXIT_WARNING;
+	$retmsg = "WARNING";
+}
+if (@$critical_messages) {
+	$retval = $EXIT_CRITICAL;
+	$retmsg = "CRITICAL";
+}
+print "$retmsg: ";
+my $msgs = 0;
+foreach my $msg (@$critical_messages, @$warning_messages) {
+	chomp $msg;
+	print " | " if ($msgs > 0);
+	print "$msg";
+	$msgs += 1;
+}
+
+if ($retval == $EXIT_OK) {
+	print "Domain $domain looks good!";
+}
+print "\n";
+
+exit $retval;
 
 sub exit_ok($) {
 	print "OK: ".shift;
@@ -54,6 +93,18 @@ sub exit_critical($) {
 sub exit_unknown($) {
 	print "UNKNOWN: ".shift;
 	exit $EXIT_UNKNOWN;
+}
+
+sub append_warning($) {
+	my ($message) = @_;
+	print_debug("append_warning: $message");
+	push(@$warning_messages, shift);
+}
+
+sub append_critical($) {
+	my ($message) = @_;
+	print_debug("append_critical: $message");
+	push(@$critical_messages, shift);
 }
 
 sub print_info($)
@@ -167,6 +218,7 @@ sub query($$$$)
 
 	$res->nameservers(@ns_old);
 
+	#print Data::Dumper->Dump([$cache, $ret], ["cache", "ret"]) if($verbose>3);
 	return ($ret, $packet);
 }
 
@@ -239,20 +291,8 @@ sub main()
 	# Cache for results obtained from TLD nameserver
 	my $cache_tld = {};
 
-	# CLI options-vars
-	my ($domain, @nameservers, $master,
-	    $no_warn_aa);
-
 	my (@tmp, $addrlist, $tld_nslist);
 	my ($ret, $packet);
-
-	GetOptions(
-		'd|domain=s' => \$domain,
-		'ns|nameserver=s' => \@nameservers,
-		'master=s' => \$master,
-		'v|verbose+' => \$verbose,
-		'no-warn-aa' => \$no_warn_aa,
-	);
 
 	if (! defined($domain)) {
 		exit_unknown("Parameter --domain is mandatory\n");
@@ -312,8 +352,35 @@ sub main()
 	}
 	print_info("Authoritative NS list for $domain from $packet->{answerfrom}: ".join(" ", @{$results{'domain_nslist_from_tld'}})."\n");
 	foreach my $ns (@{$results{'domain_nslist_from_tld'}}) {
-		
-	}
+		my $ret = [];
+		$addrlist = [];
+		$ret = lookup_cache($cache_tld, $ns, "AAAA");
+		push(@$addrlist, @$ret);
+		$ret = lookup_cache($cache_tld, $ns, "A");
+		push(@$addrlist, @$ret);
+		if (not @$addrlist) {
+			print_debug("TLD server didn't send A/AAAA for $ns. Querying recursive servers.\n");
+			$addrlist = resolve_hostnames([$ns], \@nameservers, $cache);
+			print_info("$ns: resolved to: ".join(" ", @$addrlist)." (from recursive nameserver)\n");
+		} else {
+			print_info("$ns: resolved to: ".join(" ", @$addrlist)." (from TLD nameserver)\n");
+		}
+		if (not @$addrlist) {
+			exit_critical("No A/AAAA record for $domain authoritative ns $ns\n");
+		}
+		($ret, $packet) = query($domain, "SOA", $addrlist, {});
+		$soa = find_rr("SOA", $packet);
+		if ($soa) {
+			print_info("$ns: SOA serial $soa->{serial}\n");
+		} else {
+			append_critical("$ns: query for SOA failed: $res->{errorstring}\n");
+		}
 
-	exit 0;
+		($ret, $packet) = query($domain, "NS", $addrlist, {});
+		if (@$ret) {
+			print_info("$domain: $ns: NS list: ".join(", ", @$ret)."\n");
+		} else {
+			append_critical("$ns: query for NS list failed: $res->{errorstring}\n");
+		}
+	}
 }
