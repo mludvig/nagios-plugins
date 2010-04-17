@@ -19,6 +19,7 @@
 my $version = "1.0";
 
 use strict;
+use warnings;
 use Net::DNS;
 use Getopt::Long;
 use Data::Dumper;
@@ -34,6 +35,9 @@ my $res;
 my $verbose = 0;
 my $critical_messages = [];
 my $warning_messages = [];
+
+# Fetched DNS results
+my %results;
 
 # CLI options-vars
 my ($domain, @nameservers, $master,
@@ -69,7 +73,7 @@ foreach my $msg (@$critical_messages, @$warning_messages) {
 }
 
 if ($retval == $EXIT_OK) {
-	print "Domain $domain looks good!";
+	print "$domain: master=$master, serial=".$results{'recursive_soa'}->{serial}."";
 }
 print "\n";
 
@@ -156,6 +160,48 @@ sub dump_packet($)
 		warn "query failed: ", $res->errorstring, "\n";
 	}
 	print "========= packet end ==========\n";
+}
+
+sub find_item($$)
+{
+	my ($array_ref, $item) = @_;
+	my $i;
+	for($i = 0; $i < scalar @$array_ref; $i++) {
+		last if ($array_ref->[$i] eq $item);
+	}
+	return undef if ($i >= scalar(@$array_ref));
+	return $i;
+}
+
+sub remove_item($$)
+{
+	my ($array_ref, $item) = @_;
+	my $i = find_item($array_ref, $item);
+	return undef if (not defined($i));
+	return splice(@$array_ref, $i, 1);
+}
+
+sub diff_arrays($$)
+{
+	my ($array_ref1, $array_ref2) = @_;
+	my @array1 = sort(@$array_ref1);
+	my @array2 = sort(@$array_ref2);
+	
+	my @array1_leftovers;
+	foreach my $item (@array1) {
+		if (not remove_item(\@array2, $item)) {
+			push(@array1_leftovers, $item);
+		}
+	}
+	return (\@array1_leftovers, \@array2);
+}
+
+sub arrays_equal($$)
+{
+	my ($array_ref1, $array_ref2) = @_;
+	($array_ref1, $array_ref2) = diff_arrays($array_ref1, $array_ref2);
+	return 0 if (scalar(@$array_ref1) > 0 or scalar(@$array_ref2) > 0);
+	return 1;
 }
 
 sub find_rr_all($$)
@@ -282,9 +328,6 @@ sub lookup_cache($$$)
 
 sub main()
 {
-	# Fetched DNS results
-	my %results;
-
 	# Cache for results obtained from recursive nameservers
 	my $cache = {};
 
@@ -306,7 +349,7 @@ sub main()
 		tcp_timeout	=> 10,
 	);
 
-	if (defined(@nameservers)) {
+	if (@nameservers) {
 		$res->nameservers(@nameservers);
 	}
 	# Back up list of recursive nameservers for later use
@@ -332,10 +375,23 @@ sub main()
 		print("!! Alternatively suppress this warning with --no-warn-aa\n");
 	}
 
-	# Get list of nameservers from TLD
-	my @tmp = split("\\.", $domain);
-	shift(@tmp); 
-	my $tld = join(".", @tmp);
+	# Check if --master == SOA->master
+	# (eventually use master from SOA if no --master was set)
+	if ($master) {
+		if ($master ne $soa->{mname}) {
+			append_warning("master: $master does not match SOA master $soa->{mname}\n");
+		} else {
+			print_info("master: $master matches SOA\n");
+		}
+	} else {
+		$master = $soa->{mname};
+		print_info("master: $master (from SOA)\n");
+	}
+
+	### Get list of nameservers from TLD
+	# Derive TLD name from $domain
+	my $tld;
+	($tld = $domain) =~ s/^[^\.]*\.//g;
 
 	# Fetch NS list for TLD from our recursive NS
 	($tld_nslist, $packet) = query($tld, "NS", \@nameservers, $cache);
@@ -350,7 +406,14 @@ sub main()
 	if (not $results{'domain_nslist_from_tld'}) {
 		exit_critical("Can't fetch list of authoritative nameservers from TLD: $res->{errorstring}\n");
 	}
+
 	print_info("Authoritative NS list for $domain from $packet->{answerfrom}: ".join(" ", @{$results{'domain_nslist_from_tld'}})."\n");
+
+	### Check that $master is in the list
+	if (not find_item($results{'domain_nslist_from_tld'}, $master)) {
+		append_warning("Authoritative NS list doesn't contain master $master\n");
+	}
+
 	foreach my $ns (@{$results{'domain_nslist_from_tld'}}) {
 		my $ret = [];
 		$addrlist = [];
