@@ -389,6 +389,8 @@ sub main()
 	if (! defined($domain)) {
 		exit_unknown("Parameter --domain is mandatory\n");
 	}
+	# Remove trailing dot if any
+	$domain =~ s/\.$//;
 
 	$res = Net::DNS::Resolver->new(
 		debug       => ($verbose >= 4 ? 1 : 0),
@@ -452,7 +454,7 @@ sub main()
 	($ret, $packet) = query($domain, "NS", $addrlist, $cache_tld);
 	$results{'tld_nslist'} = $ret;
 
-	if (not $results{'tld_nslist'}) {
+	if (not @{$results{'tld_nslist'}}) {
 		exit_critical("Can't fetch list of authoritative nameservers from TLD: $res->{errorstring}\n");
 	}
 
