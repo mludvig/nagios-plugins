@@ -79,7 +79,9 @@ foreach my $msg (@$critical_messages, @$warning_messages) {
 }
 
 if ($retval == $EXIT_OK) {
-	print "master=$master, serial=".$results{'recursive_soa'}->{serial}."";
+	my @slaves = sort(@{$results{'tld_nslist'}});
+	&remove_item(\@slaves, $master);
+	print "serial=".$results{'recursive_soa'}->{serial}.", master=$master, slaves=[".join(",", @slaves)."]";
 }
 print "\n";
 
