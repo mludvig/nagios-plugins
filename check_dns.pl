@@ -212,27 +212,27 @@ sub arrays_equal($$)
 	return 1;
 }
 
-sub find_rr_all($$)
+sub find_rr_all($$$)
 {
-	my ($rr_type, $packet) = @_;
+	my ($rr_type, $packet, $name) = @_;
 	my $rr_list = [];
 
 	return $rr_list if (!defined($packet));
 
 	foreach my $rr ($packet->answer, $packet->authority) {
-		push(@$rr_list, $rr) if ($rr->{type} eq $rr_type);
+		push(@$rr_list, $rr) if ($rr->{type} eq $rr_type and $rr->{name} eq $name);
 	}
 
 	return $rr_list;
 }
 
-sub find_rr($$)
+sub find_rr($$$)
 {
-	my ($rr_type, $packet) = @_;
+	my ($rr_type, $packet, $name) = @_;
 
 	return undef if (!defined($packet));
 
-	my $rr_list = find_rr_all($rr_type,$packet);
+	my $rr_list = find_rr_all($rr_type,$packet,$name);
 
 	return undef if (not $rr_list);
 
@@ -364,7 +364,7 @@ sub query_nameserver($$)
 	}
 
 	($ret, $packet) = query($domain, "SOA", $addrlist, {});
-	$soa = find_rr("SOA", $packet);
+	$soa = find_rr("SOA", $packet, $domain);
 	if ($soa) {
 		print_info("$ns: SOA serial $soa->{serial}\n");
 	} else {
@@ -410,10 +410,14 @@ sub main()
 	print_info("Using recursive nameserver(s): ".join(" ", @nameservers)."\n");
 
 	($ret, $packet) = query($domain, "SOA", \@nameservers, $cache);
-	my $soa = find_rr("SOA", $packet);
+	my $soa = find_rr("SOA", $packet, $domain);
 
 	if (! $soa) {
-		exit_critical("Can't fetch SOA of $domain from: ".join(" ", $res->nameservers)."\n");
+		if ($res->{errorstring} eq "NXDOMAIN") {
+			exit_critical("Domain not known to recursive nameservers (Unregistered? Expired?)\n");
+		} else {
+			exit_critical("Can't fetch SOA  from: ".join(", ", $res->nameservers)." ($res->{errorstring})\n");
+		}
 	}
 
 	$results{'recursive_soa'} = $soa;
