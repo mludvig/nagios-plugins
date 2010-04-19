@@ -9,7 +9,7 @@
 # - Fetch domain authoritative NS list from upper-level NS
 # - Fetch SOA and NS list from each authoritative NS
 # - Warn if SOAs serials don't match.
-# - Warn if NS lists don't match (compares NS list obtained 
+# - Warn if NS lists don't match (compares NS list obtained
 #   from upper-level NS with NS list from one of the auth NS)
 # - Warn (Critical) if designated NS doesn't know about the domain
 # - Warn if --master is not SOA master
@@ -39,6 +39,12 @@ my $warning_messages = [];
 # Fetched DNS results
 my %results;
 
+# Cache for results obtained from recursive nameservers
+my $cache = {};
+
+# Cache for results obtained from TLD nameserver
+my $cache_tld = {};
+
 # CLI options-vars
 my ($domain, @nameservers, $master,
     $no_warn_aa);
@@ -63,7 +69,7 @@ if (@$critical_messages) {
 	$retval = $EXIT_CRITICAL;
 	$retmsg = "CRITICAL";
 }
-print "$retmsg: ";
+print "$retmsg: $domain: ";
 my $msgs = 0;
 foreach my $msg (@$critical_messages, @$warning_messages) {
 	chomp $msg;
@@ -73,7 +79,7 @@ foreach my $msg (@$critical_messages, @$warning_messages) {
 }
 
 if ($retval == $EXIT_OK) {
-	print "$domain: master=$master, serial=".$results{'recursive_soa'}->{serial}."";
+	print "master=$master, serial=".$results{'recursive_soa'}->{serial}."";
 }
 print "\n";
 
@@ -186,7 +192,7 @@ sub diff_arrays($$)
 	my ($array_ref1, $array_ref2) = @_;
 	my @array1 = sort(@$array_ref1);
 	my @array2 = sort(@$array_ref2);
-	
+
 	my @array1_leftovers;
 	foreach my $item (@array1) {
 		if (not remove_item(\@array2, $item)) {
@@ -210,7 +216,7 @@ sub find_rr_all($$)
 	my $rr_list = [];
 
 	return $rr_list if (!defined($packet));
-	
+
 	foreach my $rr ($packet->answer, $packet->authority) {
 		push(@$rr_list, $rr) if ($rr->{type} eq $rr_type);
 	}
@@ -326,14 +332,55 @@ sub lookup_cache($$$)
 	return \@ret;
 }
 
+sub query_nameserver($$)
+{
+	my ($ns, $domain) = @_;
+
+	my ($soa, $nslist);
+	my ($ret, $packet);
+	my $addrlist = [];
+
+	## Try to get NS addresses from previous TLD responses
+	$ret = lookup_cache($cache_tld, $ns, "AAAA");
+	push(@$addrlist, @$ret);
+
+	$ret = lookup_cache($cache_tld, $ns, "A");
+	push(@$addrlist, @$ret);
+
+	## ... not found, ask recursive NS
+	if (not @$addrlist) {
+		print_debug("TLD server didn't send A/AAAA for $ns. Querying recursive servers.\n");
+		$addrlist = resolve_hostnames([$ns], \@nameservers, $cache);
+		print_info("$ns: resolved to: ".join(" ", @$addrlist)." (from recursive nameserver)\n");
+	} else {
+		print_info("$ns: resolved to: ".join(" ", @$addrlist)." (from TLD nameserver)\n");
+	}
+
+	if (not @$addrlist) {
+		append_critical("$ns: No A/AAAA record for $domain authoritative NS\n");
+		return undef;
+	}
+
+	($ret, $packet) = query($domain, "SOA", $addrlist, {});
+	$soa = find_rr("SOA", $packet);
+	if ($soa) {
+		print_info("$ns: SOA serial $soa->{serial}\n");
+	} else {
+		append_critical("$ns: query for SOA failed: $res->{errorstring}\n");
+	}
+
+	($nslist, $packet) = query($domain, "NS", $addrlist, {});
+	if (@$nslist) {
+		print_info("$ns: NS list: ".join(", ", @$nslist)."\n");
+	} else {
+		append_critical("$ns: query for NS list failed: $res->{errorstring}\n");
+	}
+
+	return ($soa, $nslist);
+}
+
 sub main()
 {
-	# Cache for results obtained from recursive nameservers
-	my $cache = {};
-
-	# Cache for results obtained from TLD nameserver
-	my $cache_tld = {};
-
 	my (@tmp, $addrlist, $tld_nslist);
 	my ($ret, $packet);
 
@@ -401,49 +448,50 @@ sub main()
 	# Query TLD nameservers for a list of authoritative nameservers for our domain
 	print_debug("Querying $tld to get NS list for $domain\n");
 	($ret, $packet) = query($domain, "NS", $addrlist, $cache_tld);
-	$results{'domain_nslist_from_tld'} = $ret;
+	$results{'tld_nslist'} = $ret;
 
-	if (not $results{'domain_nslist_from_tld'}) {
+	if (not $results{'tld_nslist'}) {
 		exit_critical("Can't fetch list of authoritative nameservers from TLD: $res->{errorstring}\n");
 	}
 
-	print_info("Authoritative NS list for $domain from $packet->{answerfrom}: ".join(" ", @{$results{'domain_nslist_from_tld'}})."\n");
+	print_info("Authoritative NS list for $domain from $packet->{answerfrom}: ".join(" ", @{$results{'tld_nslist'}})."\n");
 
 	### Check that $master is in the list
-	if (not find_item($results{'domain_nslist_from_tld'}, $master)) {
-		append_warning("Authoritative NS list doesn't contain master $master\n");
+	if (not find_item($results{'tld_nslist'}, $master)) {
+		append_warning("Authoritative TLD NS list doesn't contain master: $master\n");
+		## Pick one of the servers to be the master
+		$master = $results{'tld_nslist'}->[0];
+		print_info("Using $master as a master instead\n");
 	}
 
-	foreach my $ns (@{$results{'domain_nslist_from_tld'}}) {
-		my $ret = [];
-		$addrlist = [];
-		$ret = lookup_cache($cache_tld, $ns, "AAAA");
-		push(@$addrlist, @$ret);
-		$ret = lookup_cache($cache_tld, $ns, "A");
-		push(@$addrlist, @$ret);
-		if (not @$addrlist) {
-			print_debug("TLD server didn't send A/AAAA for $ns. Querying recursive servers.\n");
-			$addrlist = resolve_hostnames([$ns], \@nameservers, $cache);
-			print_info("$ns: resolved to: ".join(" ", @$addrlist)." (from recursive nameserver)\n");
-		} else {
-			print_info("$ns: resolved to: ".join(" ", @$addrlist)." (from TLD nameserver)\n");
+	if (find_item($results{'tld_nslist'}, $master)) {
+		my ($soa, $nslist) = query_nameserver($master, $domain);
+		$results{'master_soa'} = $soa;
+		$results{'master_nslist'} = $nslist;
+		if (not arrays_equal($results{'master_nslist'}, $results{'tld_nslist'})) {
+			append_warning("TLD NS list doesn't match master NS list (tld=[".join(",", @{$results{'tld_nslist'}})."] != master=[".join(",", @{$results{'master_nslist'}})."])\n");
 		}
-		if (not @$addrlist) {
-			exit_critical("No A/AAAA record for $domain authoritative ns $ns\n");
+		if ($soa->{serial} != $results{'recursive_soa'}->{serial}) {
+			append_warning("Recursive SOA serial doesn't match master SOA (".$results{'recursive_soa'}->{serial}." != ".$soa->{serial}.")\n");
 		}
-		($ret, $packet) = query($domain, "SOA", $addrlist, {});
-		$soa = find_rr("SOA", $packet);
-		if ($soa) {
-			print_info("$ns: SOA serial $soa->{serial}\n");
-		} else {
-			append_critical("$ns: query for SOA failed: $res->{errorstring}\n");
-		}
+	}
 
-		($ret, $packet) = query($domain, "NS", $addrlist, {});
-		if (@$ret) {
-			print_info("$domain: $ns: NS list: ".join(", ", @$ret)."\n");
-		} else {
-			append_critical("$ns: query for NS list failed: $res->{errorstring}\n");
+	if (not $results{'master_nslist'}) {
+		$results{'master_nslist'} = [$master, @{$results{'tld_nslist'}}];
+	}
+	if (not $results{'master_soa'}) {
+		$results{'master_soa'} = $results{'recursive_soa'};
+	}
+
+	foreach my $ns (@{$results{'tld_nslist'}}) {
+		next if ($ns eq $master);
+		my ($soa, $nslist) = query_nameserver($ns, $domain);
+
+		if ($nslist and (not arrays_equal($results{'master_nslist'}, $nslist))) {
+			append_warning("Master NS list doesn't match $ns (slave) NS list (tld=[".join(",", @{$results{'master_nslist'}})."] != [".join(",", @$nslist)."])\n");
+		}
+		if ($soa and ($soa->{serial} != $results{'master_soa'}->{serial})) {
+			append_warning("Master SOA serial doesn't match $ns SOA (".$results{'master_soa'}->{serial}." != ".$soa->{serial}.")\n");
 		}
 	}
 }
