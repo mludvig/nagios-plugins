@@ -88,34 +88,42 @@ print "\n";
 exit $retval;
 
 sub exit_ok($) {
-	print "OK: ".shift;
+	print "OK: ";
+	print "$domain: " if defined($domain);
+	print shift;
 	exit $EXIT_OK;
 }
 
 sub exit_warning($) {
-	print "WARNING: ".shift;
+	print "WARNING: ";
+	print "$domain: " if defined($domain);
+	print shift;
 	exit $EXIT_WARNING;
 }
 
 sub exit_critical($) {
-	print "CRITICAL: ".shift;
+	print "CRITICAL: ";
+	print "$domain: " if defined($domain);
+	print shift;
 	exit $EXIT_CRITICAL;
 }
 
 sub exit_unknown($) {
-	print "UNKNOWN: ".shift;
+	print "UNKNOWN: ";
+	print "$domain: " if defined($domain);
+	print shift;
 	exit $EXIT_UNKNOWN;
 }
 
 sub append_warning($) {
 	my ($message) = @_;
-	print_debug("append_warning: $message");
+	print_debug("WARNING: $message");
 	push(@$warning_messages, shift);
 }
 
 sub append_critical($) {
 	my ($message) = @_;
-	print_debug("append_critical: $message");
+	print_debug("CRITICAL: $message");
 	push(@$critical_messages, shift);
 }
 
