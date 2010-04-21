@@ -117,13 +117,13 @@ sub exit_unknown($) {
 
 sub append_warning($) {
 	my ($message) = @_;
-	print_debug("WARNING: $message");
+	print_info("WARNING: $message");
 	push(@$warning_messages, shift);
 }
 
 sub append_critical($) {
 	my ($message) = @_;
-	print_debug("CRITICAL: $message");
+	print_info("CRITICAL: $message");
 	push(@$critical_messages, shift);
 }
 
