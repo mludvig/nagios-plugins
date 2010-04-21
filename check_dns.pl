@@ -368,7 +368,7 @@ sub query_nameserver($$)
 
 	if (not @$addrlist) {
 		append_critical("$ns: No A/AAAA record for $domain authoritative NS\n");
-		return undef;
+		return (undef, undef);
 	}
 
 	($ret, $packet) = query($domain, "SOA", $addrlist, {});
@@ -376,7 +376,12 @@ sub query_nameserver($$)
 	if ($soa) {
 		print_info("$ns: SOA serial $soa->{serial}\n");
 	} else {
-		append_critical("$ns: query for SOA failed: $res->{errorstring}\n");
+		if ($res->{errorstring} eq "query timed out") {
+			append_critical("$ns: nameserver not reachable (query timed out)\n");
+		} else {
+			append_critical("$ns: query for SOA failed: $res->{errorstring}\n");
+		}
+		return (undef, undef);
 	}
 
 	($nslist, $packet) = query($domain, "NS", $addrlist, {});
@@ -384,6 +389,7 @@ sub query_nameserver($$)
 		print_info("$ns: NS list: ".join(", ", @$nslist)."\n");
 	} else {
 		append_critical("$ns: query for NS list failed: $res->{errorstring}\n");
+		return ($soa, undef);
 	}
 
 	return ($soa, $nslist);
