@@ -473,14 +473,14 @@ sub main()
 	print_info("Authoritative NS list for $domain from $packet->{answerfrom}: ".join(" ", @{$results{'tld_nslist'}})."\n");
 
 	### Check that $master is in the list
-	if (not find_item($results{'tld_nslist'}, $master)) {
+	if (not defined(find_item($results{'tld_nslist'}, $master))) {
 		append_warning("Authoritative TLD NS list doesn't contain master: $master\n");
 		## Pick one of the servers to be the master
 		$master = $results{'tld_nslist'}->[0];
 		print_info("Using $master as a master instead\n");
 	}
 
-	if (find_item($results{'tld_nslist'}, $master)) {
+	if (defined(find_item($results{'tld_nslist'}, $master))) {
 		my ($soa, $nslist) = query_nameserver($master, $domain);
 		$results{'master_soa'} = $soa;
 		$results{'master_nslist'} = $nslist;
