@@ -55,6 +55,8 @@ GetOptions(
 	'master=s' => \$master,
 	'v|verbose+' => \$verbose,
 	'no-warn-aa' => \$no_warn_aa,
+	'version' => sub { &version() },
+	'help' => sub { &usage() },
 );
 
 &main();
@@ -86,6 +88,54 @@ if ($retval == $EXIT_OK) {
 print "\n";
 
 exit $retval;
+
+sub version()
+{
+	print "check_dns_domain.pl version $version\n";
+	exit (0);
+}
+
+sub usage()
+{
+	print "
+check_dns_domain.pl $version
+
+Script for checking DNS domain inconsitencies.
+Return codes are compatible with Nagios.
+
+Author: Michal Ludvig <mludvig\@logix.net.nz> (c) 2010
+        http://logix.cz/michal/devel/nagios
+
+Usage: check_dns_domain.pl --domain <domain.tld> [--other-options]
+
+        --domain=<domain.tld>   Fully qualified domain name to check.
+
+        --master=<host.domain>  Expected 'master' nameserver. If not
+                                specified the name of master server
+                                will be taken from SOA record.
+                                If specified but not matching SOA a
+                                warning will be emitted.
+
+        --nameserver=<ip.ad.dr.es>
+                                IP address of a recursive nameserver.
+                                This NS should not be authoritative
+                                for the domain. Better use your ISP's
+                                nameserver or Google's one on 8.8.8.8.
+                                Can be used multiple times.
+                                See also --no-warn-aa below.
+
+        Suppress some warnings
+        --no-warn-aa            Do not warn if the recursive nameserver
+                                is an authoritative NS for the domain.
+
+        Other options
+        --verbose[=<number>]    Be more verbose.
+        --version               Print: check_dns_domain.pl version $version
+        --help                  Guess what this option is for ;-)
+
+";
+	exit (0);
+}
 
 sub exit_ok($) {
 	print "OK: ";
