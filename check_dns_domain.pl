@@ -297,18 +297,6 @@ sub find_rr($$$)
 	return $rr_list->[0];
 }
 
-sub create_ns_list($)
-{
-	my ($rr_list) = @_;
-	my $nslist = [];
-
-	foreach my $rr (@$rr_list) {
-		push(@$nslist, $rr->nsdname) if ($rr->type eq "NS");
-	}
-
-	return $nslist;
-}
-
 sub query($$$$)
 {
 	my ($name, $type, $nameservers, $cache) = @_;
