@@ -548,7 +548,7 @@ sub main()
 		my ($soa, $nslist) = query_nameserver($ns, $domain);
 
 		if ($nslist and (not arrays_equal($results{'master_nslist'}, $nslist))) {
-			append_warning("Master NS list doesn't match $ns (slave) NS list (tld=[".join(",", @{$results{'master_nslist'}})."] != [".join(",", @$nslist)."])\n");
+			append_warning("$master (master) NS list doesn't match $ns (slave) NS list (master=[".join(",", @{$results{'master_nslist'}})."] != slave=[".join(",", @$nslist)."])\n");
 		}
 		if ($soa and ($soa->{serial} != $results{'master_soa'}->{serial})) {
 			append_warning("Master SOA serial doesn't match $ns SOA (".$results{'master_soa'}->{serial}." != ".$soa->{serial}.")\n");
