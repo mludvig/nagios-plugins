@@ -35,6 +35,16 @@ my $res;
 my $verbose = 0;
 my $critical_messages = [];
 my $warning_messages = [];
+my $ok_messages = [];
+
+my $ignore_hosts = [];
+my $nowarn_hosts_unreachable = [];
+my $nowarn_host_outofsync = [];
+my $nowarn_soa_master_match = 0;
+my $nowarn_soa_outofsync = 0;
+my $nowarn_tld_master = 0;
+my $nowarn_tld_nslist = 0;
+my $nowarn_aa = 0;
 
 # Fetched DNS results
 my %results;
@@ -46,15 +56,14 @@ my $cache = {};
 my $cache_tld = {};
 
 # CLI options-vars
-my ($domain, @nameservers, $master,
-    $no_warn_aa);
+my ($domain, @nameservers, $master);
 
 GetOptions(
 	'd|domain=s' => \$domain,
 	'ns|nameserver=s' => \@nameservers,
 	'master=s' => \$master,
 	'v|verbose+' => \$verbose,
-	'no-warn-aa' => \$no_warn_aa,
+	'no-warn-aa' => \$nowarn_aa,
 	'version' => sub { &version() },
 	'help' => sub { &usage() },
 );
@@ -84,6 +93,10 @@ if ($retval == $EXIT_OK) {
 	my @slaves = sort(@{$results{'tld_nslist'}});
 	&remove_item(\@slaves, $master);
 	print "serial=".$results{'recursive_soa'}->{serial}.", master=$master, slaves=[".join(",", @slaves)."]";
+	foreach my $msg (@$ok_messages) {
+		chomp $msg;
+		print " | $msg";
+	}
 }
 print "\n";
 
@@ -165,16 +178,24 @@ sub exit_unknown($) {
 	exit $EXIT_UNKNOWN;
 }
 
-sub append_warning($) {
-	my ($message) = @_;
+sub append_warning($$) {
+	my ($message, $ignore) = @_;
 	print_info("WARNING: $message");
-	push(@$warning_messages, shift);
+	if ($ignore) {
+		push(@$ok_messages, "WARNING: $message");
+	} else {
+		push(@$warning_messages, $message);
+	}
 }
 
-sub append_critical($) {
-	my ($message) = @_;
+sub append_critical($$) {
+	my ($message, $ignore) = @_;
 	print_info("CRITICAL: $message");
-	push(@$critical_messages, shift);
+	if ($ignore) {
+		push(@$ok_messages, "CRITICAL: $message");
+	} else {
+		push(@$critical_messages, $message);
+	}
 }
 
 sub print_info($)
@@ -268,6 +289,15 @@ sub arrays_equal($$)
 	($array_ref1, $array_ref2) = diff_arrays($array_ref1, $array_ref2);
 	return 0 if (scalar(@$array_ref1) > 0 or scalar(@$array_ref2) > 0);
 	return 1;
+}
+
+sub in_array($$)
+{
+	my ($needle, $haystack) = @_;
+	foreach my $item (@$haystack) {
+		return 1 if ($item eq $needle);
+	}
+	return 0;
 }
 
 sub find_rr_all($$$)
@@ -405,7 +435,7 @@ sub query_nameserver($$)
 	}
 
 	if (not @$addrlist) {
-		append_critical("$ns: No A/AAAA record for $domain authoritative NS\n");
+		append_critical("$ns: No A/AAAA record for $domain authoritative NS\n", in_array($ns, $ignore_hosts));
 		return (undef, undef);
 	}
 
@@ -415,9 +445,10 @@ sub query_nameserver($$)
 		print_info("$ns: SOA serial $soa->{serial}\n");
 	} else {
 		if ($res->{errorstring} eq "query timed out") {
-			append_critical("$ns: nameserver not reachable (query timed out)\n");
+			append_critical("$ns: nameserver not reachable (query timed out)\n", 
+				(in_array($ns, $ignore_hosts) or in_array($ns, $nowarn_hosts_unreachable)));
 		} else {
-			append_critical("$ns: query for SOA failed: $res->{errorstring}\n");
+			append_critical("$ns: query for SOA failed: $res->{errorstring}\n", in_array($ns, $ignore_hosts));
 		}
 		return (undef, undef);
 	}
@@ -426,7 +457,8 @@ sub query_nameserver($$)
 	if (@$nslist) {
 		print_info("$ns: NS list: ".join(", ", @$nslist)."\n");
 	} else {
-		append_critical("$ns: query for NS list failed: $res->{errorstring}\n");
+		append_critical("$ns: query for NS list failed: $res->{errorstring}\n",
+			(in_array($ns, $ignore_hosts) or in_array($ns, $nowarn_hosts_unreachable)));
 		return ($soa, undef);
 	}
 
@@ -475,7 +507,7 @@ sub main()
 	$results{'recursive_soa'} = $soa;
 
 	print_info("SOA serial $soa->{serial} from $packet->{answerfrom} (".($packet->header->aa ? "" : "non-")."authoritative)\n");
-	if ($packet->header->aa and !$no_warn_aa) {
+	if ($packet->header->aa and !$nowarn_aa) {
 		print("\n");
 		print("!! For the most reliable results use a non-authoritative recursive nameserver.\n");
 		print("!! Your ISP may provide one, Google has one at 8.8.8.8 too.\n");
@@ -486,7 +518,7 @@ sub main()
 	# (eventually use master from SOA if no --master was set)
 	if ($master) {
 		if ($master ne $soa->{mname}) {
-			append_warning("master: $master does not match SOA master $soa->{mname}\n");
+			append_warning("master: $master does not match SOA master $soa->{mname}\n", $nowarn_soa_master_match);
 		} else {
 			print_info("master: $master matches SOA\n");
 		}
@@ -518,7 +550,7 @@ sub main()
 
 	### Check that $master is in the list
 	if (not defined(find_item($results{'tld_nslist'}, $master))) {
-		append_warning("Authoritative TLD NS list doesn't contain master: $master\n");
+		append_warning("Authoritative TLD NS list doesn't contain master: $master\n", $nowarn_tld_master);
 		## Pick one of the servers to be the master
 		$master = $results{'tld_nslist'}->[0];
 		print_info("Using $master as a master instead\n");
@@ -529,10 +561,10 @@ sub main()
 		$results{'master_soa'} = $soa;
 		$results{'master_nslist'} = $nslist;
 		if (not arrays_equal($results{'master_nslist'}, $results{'tld_nslist'})) {
-			append_warning("TLD NS list doesn't match master NS list (tld=[".join(",", @{$results{'tld_nslist'}})."] != master=[".join(",", @{$results{'master_nslist'}})."])\n");
+			append_warning("TLD NS list doesn't match master NS list (tld=[".join(",", @{$results{'tld_nslist'}})."] != master=[".join(",", @{$results{'master_nslist'}})."])\n", $nowarn_tld_nslist);
 		}
 		if ($soa->{serial} != $results{'recursive_soa'}->{serial}) {
-			append_warning("Recursive SOA serial doesn't match master SOA (".$results{'recursive_soa'}->{serial}." != ".$soa->{serial}.")\n");
+			append_warning("Recursive SOA serial doesn't match master SOA (".$results{'recursive_soa'}->{serial}." != ".$soa->{serial}.")\n", $nowarn_soa_outofsync);
 		}
 	}
 
@@ -548,10 +580,10 @@ sub main()
 		my ($soa, $nslist) = query_nameserver($ns, $domain);
 
 		if ($nslist and (not arrays_equal($results{'master_nslist'}, $nslist))) {
-			append_warning("$master (master) NS list doesn't match $ns (slave) NS list (master=[".join(",", @{$results{'master_nslist'}})."] != slave=[".join(",", @$nslist)."])\n");
+			append_warning("$master (master) NS list doesn't match $ns (slave) NS list (master=[".join(",", @{$results{'master_nslist'}})."] != slave=[".join(",", @$nslist)."])\n", in_array($ns, $nowarn_host_outofsync));
 		}
 		if ($soa and ($soa->{serial} != $results{'master_soa'}->{serial})) {
-			append_warning("Master SOA serial doesn't match $ns SOA (".$results{'master_soa'}->{serial}." != ".$soa->{serial}.")\n");
+			append_warning("$master (master) SOA serial doesn't match $ns SOA (".$results{'master_soa'}->{serial}." != ".$soa->{serial}.")\n", in_array($ns, $nowarn_host_outofsync));
 		}
 	}
 }
