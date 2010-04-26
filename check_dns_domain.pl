@@ -39,12 +39,14 @@ my $ok_messages = [];
 
 my $ignore_hosts = [];
 my $nowarn_hosts_unreachable = [];
-my $nowarn_host_outofsync = [];
+my $nowarn_hosts_outofsync = [];
 my $nowarn_soa_master_match = 0;
 my $nowarn_soa_outofsync = 0;
 my $nowarn_tld_master = 0;
 my $nowarn_tld_nslist = 0;
 my $nowarn_aa = 0;
+
+my $suppress_ignored_warns = 0;
 
 # Fetched DNS results
 my %results;
@@ -63,10 +65,15 @@ GetOptions(
 	'ns|nameserver=s' => \@nameservers,
 	'master=s' => \$master,
 	'v|verbose+' => \$verbose,
+	'ignore-host=s' => $ignore_hosts,
+	'no-warn-host-unreachable=s' => $nowarn_hosts_unreachable,
+	'no-warn-soa-master-mismatch' => \$nowarn_soa_master_match,
+	'no-warn-tld-nslist-mismatch' => \$nowarn_tld_nslist,
 	'no-warn-aa' => \$nowarn_aa,
+	'suppress-ignored-warnings' => \$suppress_ignored_warns,
 	'version' => sub { &version() },
 	'help' => sub { &usage() },
-);
+) or die("Use --help for more details.\n");
 
 &main();
 
@@ -93,9 +100,11 @@ if ($retval == $EXIT_OK) {
 	my @slaves = sort(@{$results{'tld_nslist'}});
 	&remove_item(\@slaves, $master);
 	print "serial=".$results{'recursive_soa'}->{serial}.", master=$master, slaves=[".join(",", @slaves)."]";
-	foreach my $msg (@$ok_messages) {
-		chomp $msg;
-		print " | $msg";
+	if (not $suppress_ignored_warns) {
+		foreach my $msg (@$ok_messages) {
+			chomp $msg;
+			print " | $msg";
+		}
 	}
 }
 print "\n";
@@ -138,6 +147,23 @@ Usage: check_dns_domain.pl --domain <domain.tld> [--other-options]
                                 See also --no-warn-aa below.
 
         Suppress some warnings
+        --ignore-host=<host.name>
+                                Ignore all errors associated by
+                                a nameserver <host.name>.
+
+        --no-warn-host-unreachable=<host.name>
+                                Do not treat <host.name>'s unreachability
+                                as a problem.
+
+        --no-warn-soa-master-mismatch
+                                Do not warn is SOA master doesn't match
+                                the host specified with --master.
+
+        --no-warn-tld-nslist-mismatch
+                                Do not warn if the list of nameservers
+                                returned from TLD doesn't match the list
+                                on master nameserver.
+
         --no-warn-aa            Do not warn if the recursive nameserver
                                 is an authoritative NS for the domain.
 
@@ -580,10 +606,10 @@ sub main()
 		my ($soa, $nslist) = query_nameserver($ns, $domain);
 
 		if ($nslist and (not arrays_equal($results{'master_nslist'}, $nslist))) {
-			append_warning("$master (master) NS list doesn't match $ns (slave) NS list (master=[".join(",", @{$results{'master_nslist'}})."] != slave=[".join(",", @$nslist)."])\n", in_array($ns, $nowarn_host_outofsync));
+			append_warning("$master (master) NS list doesn't match $ns (slave) NS list (master=[".join(",", @{$results{'master_nslist'}})."] != slave=[".join(",", @$nslist)."])\n", in_array($ns, $nowarn_hosts_outofsync));
 		}
 		if ($soa and ($soa->{serial} != $results{'master_soa'}->{serial})) {
-			append_warning("$master (master) SOA serial doesn't match $ns SOA (".$results{'master_soa'}->{serial}." != ".$soa->{serial}.")\n", in_array($ns, $nowarn_host_outofsync));
+			append_warning("$master (master) SOA serial doesn't match $ns SOA (".$results{'master_soa'}->{serial}." != ".$soa->{serial}.")\n", in_array($ns, $nowarn_hosts_outofsync));
 		}
 	}
 }
