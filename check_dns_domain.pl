@@ -584,6 +584,12 @@ sub main()
 
 	if (defined(find_item($results{'tld_nslist'}, $master))) {
 		my ($soa, $nslist) = query_nameserver($master, $domain);
+		if (not $nslist) {
+			append_critical("Master nameserver $master is unreachable. Using data from TLD.\n",
+				(in_array($master, $ignore_hosts) or in_array($master, $nowarn_hosts_unreachable)));
+			$nslist = $results{'tld_nslist'};
+			$soa = $results{'recursive_soa'};
+		}
 		$results{'master_soa'} = $soa;
 		$results{'master_nslist'} = $nslist;
 		if (not arrays_equal($results{'master_nslist'}, $results{'tld_nslist'})) {
