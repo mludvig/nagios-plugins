@@ -2,7 +2,10 @@
 
 #
 # Check DNS domain configuration consistency and reachability.
-# Provides Nagio-compatible return codes.
+# Provides Nagios-compatible return codes.
+#
+# Author: Michal Ludvig <mludvig@logix.net.nz> (c) 2010
+#         http://logix.cz/michal/devel/nagios
 #
 # Checks performed:
 # - Fetch domain SOA through an independent recursive nameserver
@@ -22,7 +25,7 @@ use strict;
 use warnings;
 use Net::DNS;
 use Getopt::Long;
-use Data::Dumper;
+#use Data::Dumper;
 
 # Nagios error codes
 my $EXIT_OK = 0;
