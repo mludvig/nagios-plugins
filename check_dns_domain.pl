@@ -1,5 +1,8 @@
 #!/usr/bin/perl
 
+# Disable use of embedded perl in Nagios for this script
+# nagios: -epn
+
 #
 # Check DNS domain configuration consistency and reachability.
 # Provides Nagio-compatible return codes.

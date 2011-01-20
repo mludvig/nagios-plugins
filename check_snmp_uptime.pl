@@ -1,5 +1,8 @@
 #!/usr/bin/perl
 
+# Disable use of embedded perl in Nagios for this script
+# nagios: -epn
+
 # check_snmp_uptime.pl
 #
 # Nagios script for monitoring system uptime
