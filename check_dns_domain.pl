@@ -45,7 +45,7 @@ my $nowarn_hosts_unreachable = [];
 my $nowarn_hosts_outofsync = [];
 my $nowarn_soa_master_match = 0;
 my $nowarn_soa_outofsync = 0;
-my $nowarn_tld_master = 0;
+my $nowarn_tld_missing_master = 0;
 my $nowarn_tld_nslist = 0;
 my $nowarn_aa = 0;
 
@@ -72,6 +72,7 @@ GetOptions(
 	'no-warn-host-unreachable=s' => $nowarn_hosts_unreachable,
 	'no-warn-soa-master-mismatch' => \$nowarn_soa_master_match,
 	'no-warn-tld-nslist-mismatch' => \$nowarn_tld_nslist,
+	'no-warn-tld-missing-master' => \$nowarn_tld_missing_master,
 	'no-warn-aa' => \$nowarn_aa,
 	'suppress-ignored-warnings' => \$suppress_ignored_warns,
 	'version' => sub { &version() },
@@ -166,6 +167,11 @@ Usage: check_dns_domain.pl --domain <domain.tld> [--other-options]
                                 Do not warn if the list of nameservers
                                 returned from TLD doesn't match the list
                                 on master nameserver.
+
+        --no-warn-tld-missing-master
+                                Do not warn if the list of nameservers
+                                returned from TLD doesn't include the
+                                SOA master nameserver.
 
         --no-warn-aa            Do not warn if the recursive nameserver
                                 is an authoritative NS for the domain.
@@ -579,7 +585,8 @@ sub main()
 
 	### Check that $master is in the list
 	if (not defined(find_item($results{'tld_nslist'}, $master))) {
-		append_warning("Authoritative TLD NS list doesn't contain master: $master\n", $nowarn_tld_master);
+		append_warning("Authoritative TLD NS list doesn't contain master: $master\n", 
+			($nowarn_tld_missing_master or in_array($master, $ignore_hosts)));
 		## Pick one of the servers to be the master
 		$master = $results{'tld_nslist'}->[0];
 		print_info("Using $master as a master instead\n");
