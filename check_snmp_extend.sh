@@ -50,7 +50,7 @@
 # Enjoy!
 # Michal Ludvig
 
-. /usr/local/nagios/libexec/utils.sh || exit 3
+. /usr/lib64/nagios/plugins/utils.sh || exit 3
 
 SNMPGET=$(which snmpget)
 
@@ -62,7 +62,11 @@ NAME=$1
 
 test "${HOST}" -a "${NAME}" || exit $STATE_UNKNOWN
 
-RESULT=$(snmpget -v2c -c public -OvQ ${HOST} NET-SNMP-EXTEND-MIB::nsExtendOutputFull.\"${NAME}\" 2>&1)
+SELFDIRNAME=$(dirname $0)
+test -n "${SELFDIRNAME}" && SELFDIRNAME="${SELFDIRNAME}/"
+HOST_ARG=$(${SELFDIRNAME}resolve-v4v6.pl --host ${HOST} --wrap-v6)
+
+RESULT=$(${SNMPGET} -v2c -c public -OvQ ${HOST_ARG} NET-SNMP-EXTEND-MIB::nsExtendOutputFull.\"${NAME}\" 2>&1)
 
 STATUS=$(echo $RESULT | cut -d\  -f1)
 

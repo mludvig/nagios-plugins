@@ -67,6 +67,10 @@ NAME=$1
 
 test "${HOST}" -a "${NAME}" || exit $STATE_UNKNOWN
 
+SELFDIRNAME=$(dirname $0)
+test -n "${SELFDIRNAME}" && SELFDIRNAME="${SELFDIRNAME}/"
+HOST_ARG=$(${SELFDIRNAME}resolve-v4v6.pl --host ${HOST} --wrap-v6)
+
 ## Execute snmpwalk to fetch the list of all "exec" commands
 ## and try to find the one we're interested in.
 ## Walking through extNames is fast because the commands
@@ -81,7 +85,7 @@ EXTOUTPUT_OID=${EXTOUTPUT_OID/ = STRING: ${NAME}}
 
 ## Fetch the actual command output (just the first line
 ## and we expect a Nagios-compatible format)
-RESULT=$(${SNMPGET} ${SNMPOPTS} -OvQ ${HOST} ${EXTOUTPUT_OID} 2>&1)
+RESULT=$(${SNMPGET} ${SNMPOPTS} -OvQ ${HOST_ARG} ${EXTOUTPUT_OID} 2>&1)
 
 STATUS=$(echo $RESULT | cut -d\  -f1)
 
