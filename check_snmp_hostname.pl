@@ -88,12 +88,17 @@ $SIG{ALRM} = sub {
 alarm($opt_timeout);
 
 # connect to the snmp server
-($snmp, $errstr) = Net::SNMP->session(
-  -hostname  => $opt_host,
-  -version   => $opt_snmpver,
-  -community => $opt_community,
-  -timeout   => $opt_timeout,
-);
+my ($snmp, $errstr);
+foreach my $domain ("udp4", "udp6", "tcp4", "tcp6") {
+	($snmp, $errstr) = Net::SNMP->session(
+		-hostname  => $opt_host,
+		-version   => $opt_snmpver,
+		-community => $opt_community,
+		-timeout   => $opt_timeout,
+		-domain    => $domain,
+		);
+	last if (defined($snmp));
+}
 die("Could not create SNMP session: $errstr\n") unless($snmp);
 
 my $result = $snmp->get_request(

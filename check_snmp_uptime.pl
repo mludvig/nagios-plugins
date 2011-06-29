@@ -65,14 +65,19 @@ if (defined($dbfile)) {
 		or die("Can't open database file: $dbfile: $!\n");
 }
 
-my ($session, $error) = Net::SNMP->session(
-	-hostname  => $host,
-	-community => $community,
-	-port      => $port,
-	-translate => [
-			-timeticks => 0x0   # Turn off so sysUpTime is numeric
-		],
-);
+my ($session, $error);
+foreach my $domain ("udp4", "udp6", "tcp4", "tcp6") {
+	($session, $error) = Net::SNMP->session(
+		-hostname  => $host,
+		-community => $community,
+		-port      => $port,
+		-domain    => $domain,
+		-translate => [
+				-timeticks => 0x0   # Turn off so sysUpTime is numeric
+			],
+		);
+	last if (defined($session));
+}
 
 if (!defined($session)) {
 	printf("ERROR: %s.\n", $error);
