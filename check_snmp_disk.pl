@@ -1,5 +1,9 @@
 #!/usr/bin/perl -w
 
+# check_snmp_disk.pl - source unknown
+# Updated for hrStorageTable by Michal Ludvig
+#                               http://logix.cz/michal/dvel/nagios
+
 use strict;
 use lib   qw( /usr/local/nagios/libexec );
 use utils qw( %ERRORS $TIMEOUT &print_revision &support &usage );
@@ -10,27 +14,17 @@ use Data::Dumper;
 # globals
 use vars qw(
   $PROGNAME $VERSION %disks $snmp $errstr @built_in_excludes
-  $dskTable $dskIndex $dskPath $dskDevice $dskMinimum $dskMinPercent
-  $dskTotal $dskAvail $dskUsed $dskPercent $dskPercentNode
+  $dskTable $dskIndex $dskPath
+  $dskTotal $dskAvail $dskUsed $dskPercent $dskPercentNode $dskAllocUnits
   $exit @criticals @warnings @oks
   $opt_version $opt_help $opt_timeout $opt_verbose $opt_host $opt_community
-  $opt_snmpver $opt_warn $opt_crit @opt_include @opt_exclude $opt_mountpoint
+  $opt_snmpver $opt_warn $opt_crit @opt_include @opt_exclude
+  $opt_use_dskTable
 );
 
 # config
 $PROGNAME       = 'check_snmp_disk.pl';
-$VERSION        = '0.1';
-$dskTable       = '.1.3.6.1.4.1.2021.9';
-$dskIndex       = '.1.3.6.1.4.1.2021.9.1.1';
-$dskPath        = '.1.3.6.1.4.1.2021.9.1.2';
-$dskDevice      = '.1.3.6.1.4.1.2021.9.1.3';
-$dskMinimum     = '.1.3.6.1.4.1.2021.9.1.4';
-$dskMinPercent  = '.1.3.6.1.4.1.2021.9.1.5';
-$dskTotal       = '.1.3.6.1.4.1.2021.9.1.6';
-$dskAvail       = '.1.3.6.1.4.1.2021.9.1.7';
-$dskUsed        = '.1.3.6.1.4.1.2021.9.1.8';
-$dskPercent     = '.1.3.6.1.4.1.2021.9.1.9';
-$dskPercentNode = '.1.3.6.1.4.1.2021.9.1.10';
+$VERSION        = '0.2';
 @built_in_excludes = qw(usbfs usbdevfs sysfs /proc /dev/pts);
 
 # initialize
@@ -45,12 +39,12 @@ $opt_timeout    = $TIMEOUT;
 $opt_verbose    = undef;
 $opt_host       = undef;
 $opt_community  = 'public';
-$opt_snmpver    = 1;
-$opt_warn       = undef;
-$opt_crit       = undef;
+$opt_snmpver    = "2c";
+$opt_warn       = 20;
+$opt_crit       = 10;
 @opt_include    = ();
 @opt_exclude    = ();
-$opt_mountpoint = undef;
+$opt_use_dskTable = 1;
 
 # get options
 Getopt::Long::Configure('bundling');
@@ -66,7 +60,8 @@ GetOptions(
   'c|critical=s'      => \$opt_crit,
   'i|include=s'       => \@opt_include,
   'x|exclude=s'       => \@opt_exclude,
-  'm|mountpoint'      => \$opt_mountpoint,
+  'dskTable'          => sub { $opt_use_dskTable = 1; },
+  'hrStorageTable'    => sub { $opt_use_dskTable = 0; },
 ) or do {
   print_usage();
   exit($ERRORS{'UNKNOWN'});
@@ -102,6 +97,22 @@ if(!$opt_crit) {
 
 push(@opt_exclude, @built_in_excludes);
 
+if ($opt_use_dskTable) {
+  $dskTable       = '.1.3.6.1.4.1.2021.9';
+  $dskIndex       = '.1.3.6.1.4.1.2021.9.1.1';
+  $dskPath        = '.1.3.6.1.4.1.2021.9.1.2';
+  $dskTotal       = '.1.3.6.1.4.1.2021.9.1.6';
+  $dskAvail       = '.1.3.6.1.4.1.2021.9.1.7';
+  $dskUsed        = '.1.3.6.1.4.1.2021.9.1.8';
+} else {
+  $dskTable       = '.1.3.6.1.2.1.25.2.3';       # hrStorageTable
+  $dskIndex       = '.1.3.6.1.2.1.25.2.3.1.1';   # hrStorageIndex
+  $dskPath        = '.1.3.6.1.2.1.25.2.3.1.3';   # hrStorageDescr
+  $dskAllocUnits  = '.1.3.6.1.2.1.25.2.3.1.4';   # hrStorageAllocationUnits
+  $dskTotal       = '.1.3.6.1.2.1.25.2.3.1.5';   # hrStorageSize
+  $dskUsed        = '.1.3.6.1.2.1.25.2.3.1.6';   # hrStorageUsed
+}
+
 # set alarm in case we hang
 $SIG{ALRM} = sub {
   print "DISK CRITICAL - Timeout after $opt_timeout seconds\n";
@@ -132,37 +143,39 @@ foreach my $key (keys(%$result)) {
   #print "base: [$base] index: [$index]\n";
 
   if($base eq $dskPath)     { $disks{$index}{path}    = $result->{$key}; }
-  if($base eq $dskDevice)   { $disks{$index}{device}  = $result->{$key}; }
   if($base eq $dskTotal)    { $disks{$index}{total}   = $result->{$key}; }
-  if($base eq $dskAvail)    { $disks{$index}{avail}   = $result->{$key}; }
   if($base eq $dskUsed)     { $disks{$index}{used}    = $result->{$key}; }
-  if($base eq $dskPercent)  { $disks{$index}{percent} = $result->{$key}; }
+  if($opt_use_dskTable) {
+    if($base eq $dskAvail)      { $disks{$index}{avail}    = $result->{$key}; }
+  } else {
+    if($base eq $dskAllocUnits) { $disks{$index}{alloc_unit} = $result->{$key}; }
+  }
 }
 
-# modify the disks hash to only include those devices/paths to check
+# modify the disks hash to only include those paths to check
 # based on the include and exlude options
 foreach my $key (keys(%disks)) {
-  my($path, $device) = ($disks{$key}{path}, $disks{$key}{device});
+  my $path = $disks{$key}{path};
   if(@opt_include) {
     my $is_included = 0;
     foreach my $include (@opt_include) {
-      if($include eq $path || $include eq $device) {
-        #print "including $key [$path] [$device]: in includes ($include)\n";
+      if($include eq $path) {
+        #print "including $key [$path]: in includes ($include)\n";
         $is_included = 1;
         last;
       }
     }
 
     if(!$is_included) {
-      #print "excluding $key [$path] [$device]: not in includes\n";
+      #print "excluding $key [$path]: not in includes\n";
       delete($disks{$key});
     }
   }
 
   if(@opt_exclude) {
     foreach my $exclude (@opt_exclude) {
-      if($exclude eq $path || $exclude eq $device) {
-        #print "excluding $key [$path] [$device]: in excludes ($exclude)\n";
+      if($exclude eq $path) {
+        #print "excluding $key [$path]: in excludes ($exclude)\n";
         delete($disks{$key});
       }
     }
@@ -175,16 +188,23 @@ foreach my $key (keys(%disks)) {
 @oks       = ();
 
 foreach my $key (keys(%disks)) {
-  my($path, $device, $percent, $avail)
-    = ( $disks{$key}{path},  $disks{$key}{device},
-        $disks{$key}{percent}, $disks{$key}{avail} );
+  my($path, $total, $used) = ( $disks{$key}{path}, $disks{$key}{total}, $disks{$key}{used} );
 
-  my $pcntavail = 100 - $percent;
+  # Skip non-real devices
+  next if $total <= 0;
 
-  #print "path [$path] device [$device] percent [$percent] avail [$avail] pcntavail: [$pcntavail]\n";
+  if (not $opt_use_dskTable) {
+    my $unit = $disks{$key}{alloc_unit};
+    $total = int($total*$unit/1024);
+    $used = int($used*$unit/1024);
+  }
 
-  my $output = "$avail kB ($pcntavail%) free on "
-             . ($opt_mountpoint ? $path : $device);
+  my $avail = defined($disks{$key}{avail}) ? $disks{$key}{avail} : $total - $used;
+  my $pcntavail = 100 - int(100.0*$avail/$total);
+
+  #print "path [$path] total [$total] used [$used] pcntavail: [$pcntavail]\n";
+
+  my $output = "$avail kB ($pcntavail%) free on $path";
 
   if(!check_disk($opt_crit, $pcntavail, $avail)) {
     push(@criticals, $output);
@@ -276,12 +296,13 @@ Required Arguments:
  -c, --critical=PERCENT%
     Exit with CRITICAL status if less than PERCENT of disk space is free
  -i, --include=PATH or DEVICE
-    Check only the included paths or devices.
+    Check only the included paths
  -e, --exclude=PATH or DEVICE
-    Do not check the given paths or devices.
- -m, --mountpoint
-    Display the mountpoint (path) instead of device name.
-
+    Do not check the given paths
+ --dskTable
+    Use dskTable MIB (default, used for instance on Linux)
+ --hrStorageTable
+    Use hrStorageTable MIB (for instance on Solaris)
 
 Optional Arguments:
  -C, --community=STRING
