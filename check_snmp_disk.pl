@@ -200,7 +200,7 @@ foreach my $key (keys(%disks)) {
   }
 
   my $avail = defined($disks{$key}{avail}) ? $disks{$key}{avail} : $total - $used;
-  my $pcntavail = 100 - int(100.0*$avail/$total);
+  my $pcntavail = int(100.0*$avail/$total);
 
   #print "path [$path] total [$total] used [$used] pcntavail: [$pcntavail]\n";
 
