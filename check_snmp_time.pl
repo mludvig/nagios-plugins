@@ -30,7 +30,7 @@ my $Version='1.1';
 
 
 use strict;
-use Net::SNMP;
+use Net::SNMP 5.0;
 use Getopt::Long;
 use Date::Format;
 use Time::Local;
@@ -265,9 +265,7 @@ my $exit_val=undef;
 my $local_timestamp = time;
 
 # 2. get remote date and time
-my $result = (Net::SNMP->VERSION < 4) ?
-          $session->get_request([$remote_time_oid],)
-        : $session->get_request(-varbindlist => [$remote_time_oid],);
+my $result = $session->get_request(-varbindlist => [$remote_time_oid],);
 
 if (!defined($result)) {
    printf("ERROR: Description table : %s.\n", $session->error);
