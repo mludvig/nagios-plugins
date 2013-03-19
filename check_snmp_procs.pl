@@ -102,8 +102,8 @@ foreach my $proc (@opt_procs) {
 
 # set alarm in case we hang
 $SIG{ALRM} = sub {
-  print "PROCS CRITICAL - Timeout after $opt_timeout seconds\n";
-  exit($ERRORS{'CRITICAL'});
+  print "PROCS UNKNOWN - Timeout after $opt_timeout seconds\n";
+  exit($ERRORS{'UNKNOWN'});
 };
 alarm($opt_timeout);
 
@@ -119,7 +119,10 @@ foreach my $domain ("udp4", "udp6", "tcp4", "tcp6") {
 		);
 	last if (defined($snmp));
 }
-die("Could not create SNMP session: $errstr\n") unless($snmp);
+unless($snmp) {
+	print("PROCS UNKNOWN - Could not create SNMP session: $errstr\n");
+	exit($ERRORS{'UNKNOWN'});
+}
 
 if($opt_fullscan) {
   # traverse the list
@@ -141,8 +144,8 @@ if($opt_fullscan) {
   my $result = $snmp->get_entries(-columns => [$prNames, $prCount]);
 
   if(not defined($result)) {
-    print "PROCS CRITICAL - snmp error: " . $snmp->error() . "\n";
-    exit($ERRORS{'CRITICAL'});
+    print "PROCS UNKNOWN - snmp error: " . $snmp->error() . "\n";
+    exit($ERRORS{'UNKNOWN'});
   }
 
   #print "result: [" . Dumper($result) . "]\n";

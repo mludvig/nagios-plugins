@@ -69,7 +69,7 @@ expr ${RESULT} '>' ${WARN_SIZE} > /dev/null && STATUS="WARNING"
 expr ${RESULT} '>' ${CRIT_SIZE} > /dev/null && STATUS="CRITICAL"
 
 case "$STATUS" in
-	OK|WARNING|CRITICAL|UNKNOWN)
+	OK|WARNING|CRITICAL)
 		RET=$(eval "echo \$STATE_$STATUS")
 		RESULT="${STATUS} - ${NAME} VSZ is ${RESULT} kB"
 		;;

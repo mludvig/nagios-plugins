@@ -57,7 +57,7 @@ GetOptions(
 
 my %ERRORS=('OK'=>0, 'WARNING'=>1, 'CRITICAL'=>2, 'UNKNOWN'=>3, 'DEPENDENT'=>4);
 
-my $retval = "OK";
+my $retval = "UNKNOWN";
 
 my %dbuptime;
 if (defined($dbfile)) {
@@ -80,8 +80,8 @@ foreach my $domain ("udp4", "udp6", "tcp4", "tcp6") {
 }
 
 if (!defined($session)) {
-	printf("ERROR: %s.\n", $error);
-	exit(1);
+	printf("$retval: %s.\n", $error);
+	exit($ERRORS{$retval});
 }
 
 my $result = $session->get_request(
@@ -89,12 +89,11 @@ my $result = $session->get_request(
 );
 
 if (!defined($result)) {
-	printf("ERROR: %s.\n", $session->error);
+	printf("$retval: %s.\n", $session->error);
 	$session->close();
-	exit(1);
+	exit($ERRORS{$retval});
 }
 
-my $retval;
 my $extra_message = "";
 if (not defined($dbuptime{$host}) or ($dbuptime{$host} < $result->{$oid})) {
 	$retval = "OK";

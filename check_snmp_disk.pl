@@ -115,8 +115,8 @@ if ($opt_use_dskTable) {
 
 # set alarm in case we hang
 $SIG{ALRM} = sub {
-  print "DISK CRITICAL - Timeout after $opt_timeout seconds\n";
-  exit($ERRORS{'CRITICAL'});
+  print "DISK UNKNOWN - Timeout after $opt_timeout seconds\n";
+  exit($ERRORS{'UNKNOWN'});
 };
 alarm($opt_timeout);
 
@@ -132,7 +132,10 @@ foreach my $domain ("udp4", "udp6", "tcp4", "tcp6") {
 		);
 	last if (defined($snmp));
 }
-die("Could not create SNMP session: $errstr\n") unless($snmp);
+unless($snmp) {
+	print("DISK UNKNOWN - Could not create SNMP session: $errstr\n");
+	exit($ERRORS{'UNKNOWN'});
+}
 
 # grab the table
 my $result = $snmp->get_table(-baseoid => $dskTable);

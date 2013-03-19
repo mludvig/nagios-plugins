@@ -82,8 +82,8 @@ if(!$opt_expected) {
 
 # set alarm in case we hang
 $SIG{ALRM} = sub {
-  print "LOAD CRITICAL - Timeout after $opt_timeout seconds\n";
-  exit($ERRORS{'CRITICAL'});
+  print "LOAD UNKNOWN - Timeout after $opt_timeout seconds\n";
+  exit($ERRORS{'UNKNOWN'});
 };
 alarm($opt_timeout);
 
@@ -99,7 +99,10 @@ foreach my $domain ("udp4", "udp6", "tcp4", "tcp6") {
 		);
 	last if (defined($snmp));
 }
-die("Could not create SNMP session: $errstr\n") unless($snmp);
+unless($snmp) {
+	print("HOSTNAME UNKNOWN - Could not create SNMP session: $errstr\n");
+	exit($ERRORS{'UNKNOWN'});
+}
 
 my $result = $snmp->get_request(
   -varbindlist => [
@@ -116,8 +119,8 @@ if($result) {
   print "HOSTNAME OK - $r_sysName\n";
   exit($ERRORS{'OK'});
 } else {
-  print "HOSTNAME CRITICAL - Could not retrieve data from snmp server: " . $snmp->error() . "\n";
-  exit($ERRORS{'CRITICAL'});
+  print "HOSTNAME UNKNOWN - Could not retrieve data from snmp server: " . $snmp->error() . "\n";
+  exit($ERRORS{'UNKNOWN'});
 }
 
 sub print_usage {
