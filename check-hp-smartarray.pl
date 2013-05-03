@@ -39,7 +39,7 @@ sub nagios_exit($$) {
 	my $result = shift;
 	my $message = shift;
 
-	print("$result: $message\n");
+	print("$result - $message\n");
 
 	exit($ERRORS{$result});
 }
