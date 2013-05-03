@@ -66,19 +66,7 @@ SELFDIRNAME=$(dirname $0)
 test -n "${SELFDIRNAME}" && SELFDIRNAME="${SELFDIRNAME}/"
 HOST_ARG=$(${SELFDIRNAME}resolve-v4v6.pl --host ${HOST} --wrap-v6)
 
-RESULT=$(${SNMPGET} -v2c -c public -OvQ ${HOST_ARG} NET-SNMP-EXTEND-MIB::nsExtendOutputFull.\"${NAME}\" 2>&1)
+eval $(snmpget -v2c -c public -OQ fatmama.e-it.co.nz NET-SNMP-EXTEND-MIB::nsExtendResult.\"${NAME}\" NET-SNMP-EXTEND-MIB::nsExtendOutput1Line.\"${NAME}\" | awk 'BEGIN{FS=" = "} /nsExtendResult/{print "nsExtendResult=" $2 } /nsExtendOutput1Line/{gsub("[\047\"]", "", $2); printf("nsExtendOutput1Line=\047%s\047",$2)}')
 
-STATUS=$(echo $RESULT | cut -d\  -f1)
-
-case "$STATUS" in
-	OK|WARNING|CRITICAL|UNKNOWN)
-		RET=$(eval "echo \$STATE_$STATUS")
-		;;
-	*)
-		RET=$STATE_UNKNOWN
-		RESULT="UNKNOWN - SNMP returned unparsable status: $RESULT"
-		;;
-esac
-
-echo $RESULT
-exit $RET
+echo $nsExtendOutput1Line
+exit $nsExtendResult
