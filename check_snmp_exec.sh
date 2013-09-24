@@ -69,35 +69,22 @@ test "${HOST}" -a "${NAME}" || exit $STATE_UNKNOWN
 
 SELFDIRNAME=$(dirname $0)
 test -n "${SELFDIRNAME}" && SELFDIRNAME="${SELFDIRNAME}/"
-HOST_ARG=$(${SELFDIRNAME}resolve-v4v6.pl --host ${HOST} --wrap-v6)
 
 ## Execute snmpwalk to fetch the list of all "exec" commands
 ## and try to find the one we're interested in.
 ## Walking through extNames is fast because the commands
 ## are not actually run - it's just a list of names.
-EXTOUTPUT_OID=$(${SNMPWALK} ${SNMPOPTS} ${HOST} UCD-SNMP-MIB::extNames 2>&1 | grep "STRING: ${NAME}$")
-if [ -z "${EXTOUTPUT_OID}" ]; then
+EXT_ID=$(${SNMPWALK} ${SNMPOPTS} ${HOST} UCD-SNMP-MIB::extNames 2>&1 | grep "STRING: ${NAME}$")
+if [ -z "${EXT_ID}" ]; then
 	echo "UNKNOWN - '${NAME}' was not found in UCD-SNMP-MIB::extNames"
 	exit $STATE_UNKNOWN
 fi
-EXTOUTPUT_OID=${EXTOUTPUT_OID/extNames/extOutput}
-EXTOUTPUT_OID=${EXTOUTPUT_OID/ = STRING: ${NAME}}
+EXT_ID=${EXT_ID/ = STRING: ${NAME}}
+EXT_ID=${EXT_ID/UCD-SNMP-MIB::extNames.}
 
 ## Fetch the actual command output (just the first line
 ## and we expect a Nagios-compatible format)
-RESULT=$(${SNMPGET} ${SNMPOPTS} -OvQ ${HOST_ARG} ${EXTOUTPUT_OID} 2>&1)
+eval $(${SNMPGET} ${SNMPOPTS} -OvQ ${HOST} UCD-SNMP-MIB::extOutput.${EXT_ID} UCD-SNMP-MIB::extResult.${EXT_ID} 2>&1 | awk 'NR==1{print "EXTOUTPUT=" "\"" $0 "\""} NR==2{print "EXTRESULT=" $0}')
 
-STATUS=$(echo $RESULT | cut -d\  -f1)
-
-case "$STATUS" in
-	OK|WARNING|CRITICAL|UNKNOWN)
-		RET=$(eval "echo \$STATE_$STATUS")
-		;;
-	*)
-		RET=$STATE_UNKNOWN
-		RESULT="UNKNOWN - SNMP returned unparsable status: $RESULT"
-		;;
-esac
-
-echo $RESULT
-exit $RET
+echo $EXTOUTPUT
+exit $EXTRESULT
