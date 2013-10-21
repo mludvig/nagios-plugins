@@ -1,0 +1,18 @@
+Smart Array P400 in Slot 0 (Embedded) (sn: XXXX)
+
+  array A (SATA, Unused Space: 0 MB)
+    logicaldrive 1 (698.6 GB, RAID 1, OK)
+      physicaldrive 1I:1:1 (port 1I:box 1:bay 1, SATA, 750 GB, OK)
+      physicaldrive 1I:1:2 (port 1I:box 1:bay 2, SATA, 750 GB, Rebuilding, active spare)
+
+  array B (SATA, Unused Space: 0 MB)
+    logicaldrive 2 (2.7 TB, RAID 5, Failed)
+      physicaldrive 1I:1:3 (port 1I:box 1:bay 3, SATA, 750 GB, OK)
+      physicaldrive 1I:1:4 (port 1I:box 1:bay 4, SATA, 750 GB, OK)
+      physicaldrive 2I:1:5 (port 2I:box 1:bay 5, SATA, 750 GB, OK)
+      physicaldrive 2I:1:6 (port 2I:box 1:bay 6, SATA, 750 GB, Failed)
+      physicaldrive 2I:1:7 (port 2I:box 1:bay 7, SATA, 750 GB, OK)
+
+  unassigned
+      physicaldrive 2I:1:8 (port 2I:box 1:bay 8, SATA, 750 GB, OK)
+

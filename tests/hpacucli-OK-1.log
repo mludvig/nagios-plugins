@@ -1,0 +1,18 @@
+Smart Array 6i in Slot 0 (Embedded)     
+
+   array A (Parallel SCSI, Unused Space: 0 MB)
+
+
+      logicaldrive 1 (279.4 GB, RAID 1, OK)
+
+      physicaldrive 2:0   (port 2:id 0 , Parallel SCSI, 300 GB, OK)
+      physicaldrive 2:2   (port 2:id 2 , Parallel SCSI, 300 GB, OK)
+
+   array B (Parallel SCSI, Unused Space: 0 MB)
+
+
+      logicaldrive 2 (279.4 GB, RAID 1, OK)
+
+      physicaldrive 2:1   (port 2:id 1 , Parallel SCSI, 300 GB, OK)
+      physicaldrive 2:3   (port 2:id 3 , Parallel SCSI, 300 GB, OK)
+
