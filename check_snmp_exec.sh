@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 # Nagios "check" for querying output of scripts
 # from remote servers via SNMP "exec" mechanism.
