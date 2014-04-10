@@ -93,28 +93,36 @@ sub check_arrays() {
 			$array = "unassigned";
 			next;
 		}
-		if (/^logicaldrive (\d+) \((.*, ([^,]+))\)/) {
+		if (/^logicaldrive (\d+) \((.+)\)/) {
 			$lds_cnt++;
 			$ld = $1;
 			my $ld_output = "$slot $array $_";
-			if ($3 eq "OK") {
+			if ($2 =~ /OK/) {
 				debug("OK: $ld_output");
 				push(@output, $ld_output) if ($displays_cnt);
-			} else {
+			} elsif ($2 =~ /Fail/) {
 				push(@output, $ld_output);
 				debug("CRITICAL: $ld_output");
 				update_result("CRITICAL");
+			} else {
+				push(@output, $ld_output);
+				debug("WARNING: $ld_output");
+				update_result("WARNING");
 			}
 			next;
 		}
-		if (/^physicaldrive ([^\s]+)\s+\(.*, ([^,]+)\)/) {
+		if (/^physicaldrive/) {
 			$pds_cnt++;
-			if ($2 eq "OK") {
+			if (/OK/) {
 				debug("OK: $_");
-			} else {
+			} elsif (/Fail/) {
 				push(@output, $_);
 				debug("CRITICAL: $_");
 				update_result("CRITICAL");
+			} else {
+				push(@output, $_);
+				debug("WARNING: $_");
+				update_result("WARNING");
 			}
 		}
 	}
