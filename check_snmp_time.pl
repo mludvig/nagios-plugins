@@ -284,12 +284,17 @@ if (!defined ($$result{$remote_time_oid})) {
 my $remote_octets = $result->{$remote_time_oid};
 # translate the received binary data i.e. #0x07da0c0a17393a002b0900
 my @remote_date = unpack 'n C6 a C2', $remote_octets;
-# 
-my $remote_timestamp = timelocal($remote_date[5],$remote_date[4],$remote_date[3],
-                                 $remote_date[2],$remote_date[1]-1, $remote_date[0]);
-
 # 4. calculate remote timezone offset
-$remote_timestamp = $remote_timestamp + ($o_tzoff * 60);
+my $tzoff = $o_tzoff * 60;
+if ($tzoff == 0 and $remote_date[7] eq "+") {
+	$tzoff = $remote_date[8] * 3600 + $remote_date[9] * 60;
+}
+# calculate remote timestamp
+my $remote_timestamp = timegm(
+		$remote_date[5],$remote_date[4],
+		$remote_date[3], $remote_date[2],
+		$remote_date[1]-1, $remote_date[0]
+	) - $tzoff;
 
 my $local_timestring = time2str("%Y-%m-%e_%T", $local_timestamp);
 my $remote_timestring = time2str("%Y-%m-%e_%T", $remote_timestamp);
