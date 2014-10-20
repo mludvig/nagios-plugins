@@ -66,7 +66,7 @@ SELFDIRNAME=$(dirname $0)
 test -n "${SELFDIRNAME}" && SELFDIRNAME="${SELFDIRNAME}/"
 HOST_ARG=$(${SELFDIRNAME}resolve-v4v6.pl --host ${HOST} --wrap-v6)
 
-eval $(snmpget -v2c -c public ${HOST} -OQ NET-SNMP-EXTEND-MIB::nsExtendResult.\"${NAME}\" NET-SNMP-EXTEND-MIB::nsExtendOutput1Line.\"${NAME}\" | awk 'BEGIN{FS=" = "} /nsExtendResult/{print "nsExtendResult=" $2 } /nsExtendOutput1Line/{gsub("[\047\"]", "", $2); printf("nsExtendOutput1Line=\047%s\047",$2)}')
+eval $(snmpget -v2c -c public ${HOST} -OQ NET-SNMP-EXTEND-MIB::nsExtendResult.\"${NAME}\" NET-SNMP-EXTEND-MIB::nsExtendOutput1Line.\"${NAME}\" | awk 'BEGIN{FS=" = "} /nsExtendResult/{if (/No Such Instance/) { result=3 } else { result=$2 }; print "nsExtendResult=" result } /nsExtendOutput1Line/{if (/No Such Instance/) { result="UNKNOWN - snmpd.conf is not configured?" } else { gsub("[\047\"]", "", $2); result=$2 }; printf("nsExtendOutput1Line=\047%s\047",result)}')
 
 echo $nsExtendOutput1Line
 exit $nsExtendResult
