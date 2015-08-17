@@ -95,6 +95,14 @@ if(!$opt_crit) {
   exit($ERRORS{'UNKNOWN'});
 }
 
+if($opt_warn =~ /^(\d+)([kmgt])b?$/i) {
+  $opt_warn = convert_units($1, $2);
+}
+
+if($opt_crit =~ /^(\d+)([kmgt])b?$/i) {
+  $opt_crit = convert_units($1, $2);
+}
+
 push(@opt_exclude, @built_in_excludes);
 
 if ($opt_use_dskTable) {
@@ -258,11 +266,30 @@ sub check_disk {
   }
 }
 
+sub convert_units {
+  # Convert $limit in the form on 20MB, 30g, 60T, ... to kB
+  my ($limit, $unit) = @_;
+  $unit =~ tr/A-Z/a-z/; # Lowercase it for ease of use
+
+  return $limit if ($unit eq "k");
+
+  $limit *= 1024;
+  return $limit if ($unit eq "m");
+
+  $limit *= 1024;
+  return $limit if ($unit eq "g");
+
+  $limit *= 1024;
+  return $limit if ($unit eq "t");
+
+  return 0; # Unknown unit
+}
+
 sub print_usage {
   my $tab = ' ' x length($PROGNAME);
   print <<EOB
 Usage:
- $PROGNAME -H host -w limit -c limit [-i include] [-x exclude] [-m]
+ $PROGNAME -H host -w limit -c limit [-i include] [-x exclude]
  $tab [-C snmp_community] [-S snmp_version] [-t timeout]
  $PROGNAME --version
  $PROGNAME --help
@@ -278,9 +305,8 @@ sub print_help {
   print <<EOB;
 
 Check disk space on the remote machine through SNMP.  You must configure the
-SNMP daemon on the target machine to check the disks, with either the option
-"includeAllDisks 5%" or "disk / 5%".  The percentages you set there are 
-required for the SNMP daemon to work, but this plugin completely ignores them.
+SNMP daemon on the target machine to report the disk space using the option
+"disk /" or "disk /home", etc.
 
 EOB
 
@@ -290,12 +316,12 @@ EOB
 Required Arguments:
  -H, --host=HOST
     The name or address of the host running SNMP.
- -w, --warning=INTEGER
-    Exit with WARNING status if less than INTEGER kilobytes of disk are free
+ -w, --warning=INTEGER[kMGT]
+    Exit with WARNING status if less than INTEGER kB / MB / GB / TB of disk are free
  -w, --warning=PERCENT%
     Exit with WARNING status if less than PERCENT of disk space is free
- -c, --critical=INTEGER
-    Exit with CRITICAL status if less than INTEGER kilobytes of disk are free
+ -c, --critical=INTEGER[kMGT]
+    Exit with CRITICAL status if less than INTEGER kB / MB / GB / TB of disk are free
  -c, --critical=PERCENT%
     Exit with CRITICAL status if less than PERCENT of disk space is free
  -i, --include=PATH or DEVICE
