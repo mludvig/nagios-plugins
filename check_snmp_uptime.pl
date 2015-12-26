@@ -25,6 +25,10 @@
 #         Use --sysUpTime or --hrSystemUptime to select
 #         the appropriate OID for each device.
 #
+#         IMPORTANT - The units returned in the above two OIDs
+#                     are 1/100th of a second and are 32bit numbers.
+#                     They overflow after 497 days and a few hours!
+#
 # NOTE 2: If --dbfile is not used the script will only
 #         check and report the uptime and return OK.
 #         No alerts will be generated at all.
@@ -100,6 +104,10 @@ if (not defined($dbuptime{$host}) or ($dbuptime{$host} < $result->{$oid})) {
 } else {
 	$retval = $rebootretval;
 	$extra_message = " (was: ".ticks_to_time($dbuptime{$host}).")";
+	if ($dbuptime{$host} > 4285440000) {
+		# Recorded uptime is over 496 days - close to SNMP Ticks overflow
+		$extra_message .= " (NOTE: SNMP Uptime Counter overflows after 497 days)"
+	}
 }
 
 # Pointless but harmless when %dbuptime is not tie()'d to a db file
