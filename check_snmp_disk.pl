@@ -19,12 +19,12 @@ use vars qw(
   $exit @criticals @warnings @oks
   $opt_version $opt_help $opt_timeout $opt_verbose $opt_host $opt_community
   $opt_snmpver $opt_warn $opt_crit @opt_include @opt_exclude
-  $opt_use_dskTable
+  $opt_use_dskTable $opt_warn_inodes $opt_crit_inodes
 );
 
 # config
 $PROGNAME       = 'check_snmp_disk.pl';
-$VERSION        = '0.2';
+$VERSION        = '0.3';
 @built_in_excludes = qw(usbfs usbdevfs sysfs /proc /dev/pts);
 
 # initialize
@@ -42,6 +42,8 @@ $opt_community  = 'public';
 $opt_snmpver    = "2c";
 $opt_warn       = 20;
 $opt_crit       = 10;
+$opt_warn_inodes = 20;
+$opt_crit_inodes = 10;
 @opt_include    = ();
 @opt_exclude    = ();
 $opt_use_dskTable = 1;
@@ -58,6 +60,8 @@ GetOptions(
   'S|snmpver=s'       => \$opt_snmpver,
   'w|warning=s'       => \$opt_warn,
   'c|critical=s'      => \$opt_crit,
+  'warning_inodes=s'  => \$opt_warn_inodes,
+  'critical_inodes=s' => \$opt_crit_inodes,
   'i|include=s'       => \@opt_include,
   'x|exclude=s'       => \@opt_exclude,
   'dskTable'          => sub { $opt_use_dskTable = 1; },
@@ -112,6 +116,7 @@ if ($opt_use_dskTable) {
   $dskTotal       = '.1.3.6.1.4.1.2021.9.1.6';
   $dskAvail       = '.1.3.6.1.4.1.2021.9.1.7';
   $dskUsed        = '.1.3.6.1.4.1.2021.9.1.8';
+  $dskPercentNode = '.1.3.6.1.4.1.2021.9.1.10';
 } else {
   $dskTable       = '.1.3.6.1.2.1.25.2.3';       # hrStorageTable
   $dskIndex       = '.1.3.6.1.2.1.25.2.3.1.1';   # hrStorageIndex
@@ -119,6 +124,7 @@ if ($opt_use_dskTable) {
   $dskAllocUnits  = '.1.3.6.1.2.1.25.2.3.1.4';   # hrStorageAllocationUnits
   $dskTotal       = '.1.3.6.1.2.1.25.2.3.1.5';   # hrStorageSize
   $dskUsed        = '.1.3.6.1.2.1.25.2.3.1.6';   # hrStorageUsed
+  $dskPercentNode = undef;                       # hrStorageTable doesn't report on i-nodes
 }
 
 # set alarm in case we hang
@@ -158,6 +164,7 @@ foreach my $key (keys(%$result)) {
   if($base eq $dskUsed)     { $disks{$index}{used}    = $result->{$key}; }
   if($opt_use_dskTable) {
     if($base eq $dskAvail)      { $disks{$index}{avail}    = $result->{$key}; }
+    if($base eq $dskPercentNode) { $disks{$index}{inodes}  = $result->{$key}; }
   } else {
     if($base eq $dskAllocUnits) { $disks{$index}{alloc_unit} = $result->{$key}; }
   }
@@ -212,6 +219,7 @@ foreach my $key (keys(%disks)) {
 
   my $avail = defined($disks{$key}{avail}) ? $disks{$key}{avail} : $total - $used;
   my $pcntavail = int(100.0*$avail/$total);
+  my $pcntinodes = $disks{$key}{inodes};
 
   #print "path [$path] total [$total] used [$used] pcntavail: [$pcntavail]\n";
 
@@ -223,6 +231,17 @@ foreach my $key (keys(%disks)) {
     push(@warnings, $output);
   } else {
     push(@oks, $output);
+  }
+
+  if(defined($pcntinodes)) {
+    $output = "$pcntinodes% inodes used on $path";
+    if($pcntinodes > (100 - $opt_crit_inodes)) {
+      push(@criticals, $output);
+    } elsif($pcntinodes > (100 - $opt_warn_inodes)) {
+      push(@warnings, $output);
+    } else {
+      push(@oks, $output);
+    }
   }
 }
 
