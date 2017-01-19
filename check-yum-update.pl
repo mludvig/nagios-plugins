@@ -7,6 +7,9 @@ my ($file, $run_yum);
 my $critical = 0;
 my $num_upg = 0;
 my $filelist;
+my $filelist_s;
+
+$ENV{LC_ALL} = 'C';
 
 GetOptions ('file=s' => \$file,
 	'run-yum' => \$run_yum,
@@ -34,13 +37,32 @@ while (<>) {
 	}
 }
 
+if (defined($run_yum)) {
+        open STDIN, "yum check-update --security|" or die "UNKNOWN - Please install yum security plugin : $!\n";
+}
+
+my $pkglist_switch = 0;
+while (<>) {
+        if ($pkglist_switch == 0) {
+                $pkglist_switch = 1 if (/^\s*$/);
+                next;
+        }
+        if (/^([^\s]+)\s+([^\s]+)\s+([^\s]+)/) {
+                my $package = $1;
+                my $version = $2;
+                my $repository = $3;
+                $package =~ s/\.[^\.]+$//;
+                $filelist_s .= $package." ";
+                $critical ++;
+        }
+}
+
 my $ret;
 if ($num_upg == 0 and $pkglist_switch == 1) {
 	print ("UNKNOWN - could not parse \"yum check-update\" output\n");
 	$ret = 3;
 } elsif ($critical > 0) {
-	## Unused - don't know how to decide if there are security updates or not
-	print ("CRITICAL - $critical security updates available: $filelist\n");
+	print ("CRITICAL - $critical security updates available: $filelist_s\n");
 	$ret = 2;
 } elsif ($num_upg > 0) {
 	print ("WARNING - $num_upg updates available: $filelist\n");
@@ -55,7 +77,7 @@ exit $ret;
 
 sub usage() {
 	printf("
-Nagios SNMP check for Debian / Ubuntu package updates
+Nagios SNMP check for RH / Centos package updates
 
 Author: Michal Ludvig <michal\@logix.cz> (c) 2007
         http://www.logix.cz/michal/devel/nagios
