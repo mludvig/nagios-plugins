@@ -296,8 +296,8 @@ my $remote_timestamp = timegm(
 		$remote_date[1]-1, $remote_date[0]
 	) - $tzoff;
 
-my $local_timestring = time2str("%Y-%m-%e_%T", $local_timestamp);
-my $remote_timestring = time2str("%Y-%m-%e_%T", $remote_timestamp);
+my $local_timestring = time2str("%Y-%m-%d_%T", $local_timestamp);
+my $remote_timestring = time2str("%Y-%m-%d_%T", $remote_timestamp);
 verb("Local Time:  $local_timestring\nRemote Time: $remote_timestring");
 
 # 5. compare offset against -w and -c values
