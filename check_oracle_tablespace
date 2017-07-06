@@ -1,0 +1,144 @@
+#!/usr/bin/perl
+
+# Nagios Plugin for checking Oracle Tablespaces
+# Michael Ludvig, Enterprise IT Ltd
+
+# Requires 'sqlplus' in ${PATH}
+
+# Example usage:
+#   -i SYSTEM,USERS   Check only SYSTEM and USERS tablespaces
+#   -x SYSTEM,DBA123  Check all tablespaces except SYSTEM and DBA123
+#   --list            List all tablespaces and current usage and exit
+#
+# Change the warning thresholds with -warning (-w) / --critical (-c)
+
+use strict;
+use Getopt::Long;
+
+my $host = undef;
+my $port = 1521;
+my $user = undef;
+my $password = undef;
+my $sid  = undef;
+my $list_tablespaces = 0;
+my @ts_include = ();
+my @ts_exclude = ();
+my $pct_warn = 80;
+my $pct_crit = 90;
+
+GetOptions(
+	"h|host=s" => \$host,
+	"port=i" => \$port,
+	"u|user=s" => \$user,
+	"p|password=s" => \$password,
+	"s|sid=s" => \$sid,
+	"list" => \$list_tablespaces,
+	"i|include=s" => \@ts_include,
+	"x|exclude=s" => \@ts_exclude,
+	"w|warn=i" => \$pct_warn,
+	"c|crit=i" => \$pct_crit,
+);
+
+@ts_include = split(/,/, join(',', @ts_include));
+@ts_exclude = split(/,/, join(',', @ts_exclude));
+
+my (@str_OK, @str_WARN, @str_CRIT);
+my %ERRORS=( 'OK' => 0, 'WARNING' => 1, 'CRITICAL' => 2, 'UNKNOWN' => 3);
+
+my $set_pagesize = "SET PAGESIZE 0";
+my $check_ts_query = "SELECT a.tablespace_name, a.total, NVL(b.free,0.0) FREE, 100 - TRUNC(NVL(b.free,0.0)/a.total * 1000) / 10 PRC_USED ".
+	"FROM (SELECT tablespace_name, SUM(bytes)/1024/1024 total FROM dba_data_files GROUP BY tablespace_name) A ".
+	"LEFT OUTER JOIN (SELECT tablespace_name, SUM(bytes)/1024/1024 FREE FROM dba_free_space GROUP BY tablespace_name) B ".
+	"ON a.tablespace_name=b.tablespace_name";
+my $where_clause = "";
+
+if ($list_tablespaces) {
+	print "UNKNOWN - Listing all tablespaces.\n";
+	$set_pagesize .= " EMBEDDED ON";
+} else {
+	if (@ts_include) {
+		$where_clause .= "a.tablespace_name IN ('" . join("','", @ts_include) . "')";
+	}
+	if (@ts_exclude) {
+		if ($where_clause) { $where_clause .= " AND "; }
+		$where_clause .= "a.tablespace_name NOT IN ('" . join("','", @ts_exclude) . "')";
+	}
+}
+
+if ($where_clause) {
+	$check_ts_query .= " WHERE $where_clause";
+}
+
+sub trim($) {
+	my $string = shift;
+	$string =~ s/^\s+//;
+	$string =~ s/\s+$//;
+	return $string;
+}
+
+open (SQL, "sqlplus -s $user/$password@\\(DESCRIPTION=\\(ADDRESS=\\(PROTOCOL=TCP\\)\\(Host=$host\\)\\(Port=$port\\)\\)\\(CONNECT_DATA=\\(SID=$sid\\)\\)\\) << EOF
+$set_pagesize
+set numformat 999999999.9
+$check_ts_query;
+EOF |") or die;
+
+while (my $res = <SQL>) {
+	if ($list_tablespaces) {
+		print "$res";
+		next;
+	}
+
+	$res = trim($res);
+	next if ($res eq "");
+	next if ($res eq "ERROR:");
+	if ($res =~ /^(ORA-\d+):/) {
+		print "CRITICAL - $res\n";
+		exit $ERRORS{"CRITICAL"};
+	}
+
+	if ($res =~ /^(\w+)\s+(\d+.\d+)\s+(\d+.\d+)\s+(\d+.\d+)/) {
+		my $ts_name = $1;
+		my $pct_used = $4;
+		if ($pct_used > $pct_crit) {
+			push @str_CRIT, "${ts_name}=${pct_used}%";
+		}
+		elsif ($pct_used > $pct_warn) {
+			push @str_WARN, "${ts_name}=${pct_used}%";
+		} else {
+			push @str_OK, "${ts_name}=${pct_used}%";
+		}
+	}
+}
+
+if ($list_tablespaces) {
+	exit $ERRORS{"UNKNOWN"};
+}
+
+my $retval = -1;
+my @retstr = ();
+
+if (@str_CRIT) {
+	my $tmp = "CRITICAL - " . join(", ", @str_CRIT);
+	push @retstr, $tmp;
+	$retval = $ERRORS{"CRITICAL"} unless $retval >= $ERRORS{"CRITICAL"};
+}
+
+if (@str_WARN) {
+	my $tmp = "WARNING - " . join(", ", @str_WARN);
+	push @retstr, $tmp;
+	$retval = $ERRORS{"WARNING"} unless $retval >= $ERRORS{"WARNING"};
+}
+
+if (@str_OK) {
+	my $tmp = "OK - " . join(", ", @str_OK);
+	push @retstr, $tmp;
+	$retval = $ERRORS{"OK"} unless $retval >= $ERRORS{"OK"};
+}
+
+if (not @retstr) {
+	print "UNKNOWN - No tablespaces checked. Use --list or -i/-x.\n";
+	exit $ERRORS{"UNKNOWN"};
+} else {
+	print join(" / ", @retstr)."\n";
+	exit $retval;
+}
