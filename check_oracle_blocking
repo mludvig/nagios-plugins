@@ -1,0 +1,115 @@
+#!/usr/bin/perl
+
+# Nagios Plugin for checking blocking transactions
+# Michael Ludvig, Enterprise IT Ltd
+
+# Requires 'sqlplus' in ${PATH}
+
+# Change the timeout thresholds with -warning (-w) / --critical (-c)
+
+use strict;
+use Getopt::Long;
+
+my $host = undef;
+my $port = 1521;
+my $user = undef;
+my $password = undef;
+my $sid  = undef;
+my $minutes_warn = 1;
+my $minutes_crit = 5;
+
+GetOptions(
+	"h|host=s" => \$host,
+	"port=i" => \$port,
+	"u|user=s" => \$user,
+	"p|password=s" => \$password,
+	"s|sid=s" => \$sid,
+	"w|warn=i" => \$minutes_warn,
+	"c|crit=i" => \$minutes_crit,
+);
+
+my (@str_OK, @str_WARN, @str_CRIT);
+my %ERRORS=( 'OK' => 0, 'WARNING' => 1, 'CRITICAL' => 2, 'UNKNOWN' => 3);
+
+my $check_blocking_query = 'SELECT /*+ ORDERED */
+   blocker.sid blocker_sid,
+   blocked.sid blocked_sid,
+   TRUNC(blocked.ctime/60) min_blocked,
+   DECODE(blocked.request, 1, \'No Lock\',
+                           2, \'Row Share\',
+                           3, \'Row Excl\',
+                           4, \'Share\',
+                           5, \'Shr Row Excl\',
+                           6, \'Exclusive\',
+                           null) command
+FROM (SELECT * FROM gv\$lock WHERE block != 0 AND type = \'TX\') blocker,
+     gv\$lock blocked
+WHERE blocked.type = \'TX\' AND blocked.block = 0 AND blocked.id1 = blocker.id1';
+
+sub trim($) {
+	my $string = shift;
+	$string =~ s/^\s+//;
+	$string =~ s/\s+$//;
+	return $string;
+}
+
+open (SQL, "sqlplus -s $user/$password@\\(DESCRIPTION=\\(ADDRESS=\\(PROTOCOL=TCP\\)\\(Host=$host\\)\\(Port=$port\\)\\)\\(CONNECT_DATA=\\(SID=$sid\\)\\)\\) << EOF
+SET PAGESIZE 0;
+SET NUMFORMAT 999999999;
+$check_blocking_query;
+EOF |") or die;
+
+while (my $res = <SQL>) {
+	$res = trim($res);
+	next if ($res eq "");
+	next if ($res eq "no rows selected");
+	next if ($res eq "ERROR:");
+	if ($res =~ /^(ORA-\d+):/) {
+		print "CRITICAL - $res\n";
+		exit $ERRORS{"CRITICAL"};
+	}
+
+	if ($res =~ /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(.+)/) {
+		my $blocker_sid = $1;
+		my $blocked_sid = $2;
+		my $minutes_blocked = $3;
+		my $command = $4;
+		if ($minutes_blocked > $minutes_crit) {
+			push @str_CRIT, "$command (blocker=$blocker_sid, blocked=$blocked_sid, minutes=$minutes_blocked)";
+		}
+		elsif ($minutes_blocked > $minutes_warn) {
+			push @str_WARN, "$command (blocker=$blocker_sid, blocked=$blocked_sid, minutes=$minutes_blocked)";
+		} else {
+			push @str_OK, "$command (blocker=$blocker_sid, blocked=$blocked_sid, minutes=$minutes_blocked)";
+		}
+	}
+}
+
+my $retval = -1;
+my @retstr = ();
+
+if (@str_CRIT) {
+	my $tmp = "CRITICAL - " . join(", ", @str_CRIT);
+	push @retstr, $tmp;
+	$retval = $ERRORS{"CRITICAL"} unless $retval >= $ERRORS{"CRITICAL"};
+}
+
+if (@str_WARN) {
+	my $tmp = "WARNING - " . join(", ", @str_WARN);
+	push @retstr, $tmp;
+	$retval = $ERRORS{"WARNING"} unless $retval >= $ERRORS{"WARNING"};
+}
+
+if (@str_OK) {
+	my $tmp = "OK - " . join(", ", @str_OK);
+	push @retstr, $tmp;
+	$retval = $ERRORS{"OK"} unless $retval >= $ERRORS{"OK"};
+}
+
+if (not @retstr) {
+	print "OK - no blocking transactions detected\n";
+	exit $ERRORS{"OK"};
+} else {
+	print join(" / ", @retstr)."\n";
+	exit $retval;
+}
