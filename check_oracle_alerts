@@ -1,0 +1,136 @@
+#!/usr/bin/perl
+
+# Nagios Plugin for checking ORA-* alerts in log file
+# Michael Ludvig, Enterprise IT Ltd
+
+use strict;
+use Fcntl qw(SEEK_SET SEEK_CUR SEEK_END);
+use DB_File;
+use Digest::MD5 qw(md5_hex);
+use Getopt::Long;
+
+my (@str_OK, @str_WARN, @str_CRIT);
+my %ERRORS=( 'OK' => 0, 'WARNING' => 1, 'CRITICAL' => 2, 'UNKNOWN' => 3);
+
+sub main()
+{
+	my $dbfile;
+	my $logfile;
+
+	GetOptions(
+		'f|file=s' => \$logfile,
+		'd|dbfile=s' => \$dbfile,
+	);
+
+	die("Use -d /path/to/dbfile.db\n") if (not defined($dbfile));
+	die("Use -f /path/to/file.log\n") if (not defined($logfile));
+
+	tie(my %db,  'DB_File', $dbfile) or die("Unable to open $dbfile\n");
+	my $db = \%db;
+
+	open(my $fd, "<", $logfile) or die("Unable to open $logfile\n");
+
+	# Figure out the right position where we start scanning the log file
+	my $last_position = 0;
+	if (check_header_md5($fd, $db) == 1) {
+		# File has the same header - assume it's the same and continue scanning from
+		# where we left off last time.
+		$last_position = $db->{'last_position'} if defined($db->{'last_position'});
+
+		seek($fd, 0, SEEK_END);
+		my $file_size = tell($fd);
+
+		if ($file_size < $last_position) {
+			print "File was truncated - scanning from the beginning. [$last_position -> $file_size]\n";
+			seek($fd, 0, SEEK_SET);
+		} elsif ($file_size == $last_position) {
+			format_exit();	# This call will exit the program
+		} else {
+			print "File is the same - scanning from $last_position\n";
+			seek($fd, $last_position, SEEK_SET);
+		}
+	} else {
+		print "File is different - scanning from the beginning.\n";
+		seek($fd, 0, SEEK_SET);
+	}
+
+	# Now we're on the right position - process new lines
+	my $lines = 0;
+	while(<$fd>) {
+		$lines++;
+		chomp;
+		### Add WARNING / CRITICAL matching here ###
+		push(@str_WARN, $_) if (/^ORA-\d+/);
+		### End of pattern matching ###
+	}
+
+	$db->{'last_position'} = tell($fd);
+	print("Processed extra $lines lines.\n");
+	print("Updated last_position from $last_position to ".($db->{'last_position'})."\n");
+
+	format_exit();
+}
+
+sub format_exit()
+{
+	my $retval = -1;
+	my @retstr = ();
+
+	if (@str_CRIT) {
+		my $tmp = "CRITICAL - " . join(", ", @str_CRIT);
+		push @retstr, $tmp;
+		$retval = $ERRORS{"CRITICAL"} unless $retval >= $ERRORS{"CRITICAL"};
+	}
+
+	if (@str_WARN) {
+		my $tmp = "WARNING - " . join(", ", @str_WARN);
+		push @retstr, $tmp;
+		$retval = $ERRORS{"WARNING"} unless $retval >= $ERRORS{"WARNING"};
+	}
+
+	if (@str_OK) {
+		my $tmp = "OK - " . join(", ", @str_OK);
+		push @retstr, $tmp;
+		$retval = $ERRORS{"OK"} unless $retval >= $ERRORS{"OK"};
+	}
+
+	if (not @retstr) {
+		print "OK - No new pattern matches.\n";
+		exit $ERRORS{"OK"};
+	} else {
+		print join(" / ", @retstr)."\n";
+		exit $retval;
+	}
+}
+
+sub check_header_md5($$)
+{
+	my $fd = shift;
+	my $db = shift;
+	my $lineno = 0;
+	my $md5_content = "";
+
+	# Read max 10 lines or how many were read last time, whichever is lower
+	my $md5_lines_max = defined($db->{'md5_lines'}) ? $db->{'md5_lines'} : 10;
+	#print "md5_lines_max = $md5_lines_max\n";
+
+	while (my $line = <$fd> and ($lineno++ < $md5_lines_max)) {
+		# MD5 Sum the first 10 lines as a file signature to detect roll-over
+		$md5_content .= $line;
+	}
+
+	my $md5 = md5_hex($md5_content);
+	my $retval = 1;
+
+	if ($db->{'md5'} ne $md5) {
+		# Headers don't match -> different file,  truncated, etc.
+		$retval = 0;
+	}
+
+	$db->{'md5'} = $md5;
+	$db->{'md5_lines'} = $lineno - 1;
+
+	return $retval;
+}
+
+main();
