@@ -50,10 +50,12 @@ my %ERRORS=( 'OK' => 0, 'WARNING' => 1, 'CRITICAL' => 2, 'UNKNOWN' => 3);
 
 my $set_pagesize = "SET PAGESIZE 0 LINESIZE 200";
 
-my $check_ts_query_current = "SELECT a.tablespace_name, a.total, NVL(b.free,0.0) FREE, 100 - TRUNC(NVL(b.free,0.0)/a.total * 1000) / 10 PRC_USED ".
+my $check_ts_query_current = "SELECT a.tablespace_name, a.total TOTAL_MB, (a.total - b.free) USED_MB,".
+	"	100 - TRUNC(NVL(b.free,0.0)/a.total * 1000) / 10 USED_PRC ".
 	"FROM (SELECT tablespace_name, SUM(bytes)/1024/1024 total FROM dba_data_files GROUP BY tablespace_name) A ".
 	"LEFT OUTER JOIN (SELECT tablespace_name, SUM(bytes)/1024/1024 FREE FROM dba_free_space GROUP BY tablespace_name) B ".
-	"ON a.tablespace_name=b.tablespace_name";
+	"ON a.tablespace_name=b.tablespace_name ".
+	"ORDER BY 1";
 
 my $check_ts_query_autoextend = "WITH tbs_auto AS".
 "     (SELECT DISTINCT tablespace_name, autoextensible".
@@ -83,17 +85,9 @@ my $check_ts_query_autoextend = "WITH tbs_auto AS".
 "                GROUP BY tablespace_name)".
 "      GROUP BY tablespace_name)".
 "SELECT a.tablespace_name,".
-"       (files.total_tbs_bytes - fragments.total_tbs_free_bytes".
-"       ) total_used_space,".
-"       AUTOEXTEND.total_growth_tbs max_size_of_tablespace,".
-"       (  (  (  AUTOEXTEND.total_growth_tbs".
-"              - (AUTOEXTEND.total_growth_tbs - fragments.total_tbs_free_bytes".
-"                )".
-"             )".
-"           / AUTOEXTEND.total_growth_tbs".
-"          )".
-"        * 100".
-"       ) total_auto_used_pct".
+"       AUTOEXTEND.total_growth_tbs/1024/1024 MAX_SIZE_MB,".
+"       (files.total_tbs_bytes - fragments.total_tbs_free_bytes)/1024/1024 USED_MB,".
+"       ((files.total_tbs_bytes - fragments.total_tbs_free_bytes) / AUTOEXTEND.total_growth_tbs) * 100 USED_PRC".
 "  FROM dba_tablespaces a, files, fragments, AUTOEXTEND, tbs_auto".
 " WHERE a.tablespace_name = files.tablespace_name".
 "   AND a.tablespace_name = fragments.tablespace_name".
@@ -130,7 +124,7 @@ sub trim($) {
 
 open (SQL, "sqlplus -s $user/$password@\\(DESCRIPTION=\\(ADDRESS=\\(PROTOCOL=TCP\\)\\(Host=$host\\)\\(Port=$port\\)\\)\\(CONNECT_DATA=\\(SID=$sid\\)\\)\\) << EOF
 $set_pagesize
-set numformat 9999999999999.9
+set numformat 999999999990.9
 $check_ts_query;
 EOF |") or die;
 
