@@ -9,6 +9,7 @@
 #   -i SYSTEM,USERS   Check only SYSTEM and USERS tablespaces
 #   -x SYSTEM,DBA123  Check all tablespaces except SYSTEM and DBA123
 #   --list            List all tablespaces and current usage and exit
+#   --current         Don't take into account auto-extensibility of tablespaces
 #
 # Change the warning thresholds with -warning (-w) / --critical (-c)
 
@@ -21,6 +22,7 @@ my $user = undef;
 my $password = undef;
 my $sid  = undef;
 my $list_tablespaces = 0;
+my $query_current = 0;
 my @ts_include = ();
 my @ts_exclude = ();
 my $pct_warn = 80;
@@ -33,6 +35,7 @@ GetOptions(
 	"p|password=s" => \$password,
 	"s|sid=s" => \$sid,
 	"list" => \$list_tablespaces,
+	"current" => \$query_current,
 	"i|include=s" => \@ts_include,
 	"x|exclude=s" => \@ts_exclude,
 	"w|warn=i" => \$pct_warn,
@@ -45,12 +48,61 @@ GetOptions(
 my (@str_OK, @str_WARN, @str_CRIT);
 my %ERRORS=( 'OK' => 0, 'WARNING' => 1, 'CRITICAL' => 2, 'UNKNOWN' => 3);
 
-my $set_pagesize = "SET PAGESIZE 0";
-my $check_ts_query = "SELECT a.tablespace_name, a.total, NVL(b.free,0.0) FREE, 100 - TRUNC(NVL(b.free,0.0)/a.total * 1000) / 10 PRC_USED ".
+my $set_pagesize = "SET PAGESIZE 0 LINESIZE 200";
+
+my $check_ts_query_current = "SELECT a.tablespace_name, a.total, NVL(b.free,0.0) FREE, 100 - TRUNC(NVL(b.free,0.0)/a.total * 1000) / 10 PRC_USED ".
 	"FROM (SELECT tablespace_name, SUM(bytes)/1024/1024 total FROM dba_data_files GROUP BY tablespace_name) A ".
 	"LEFT OUTER JOIN (SELECT tablespace_name, SUM(bytes)/1024/1024 FREE FROM dba_free_space GROUP BY tablespace_name) B ".
 	"ON a.tablespace_name=b.tablespace_name";
+
+my $check_ts_query_autoextend = "WITH tbs_auto AS".
+"     (SELECT DISTINCT tablespace_name, autoextensible".
+"                 FROM dba_data_files".
+"                WHERE autoextensible = 'YES'),".
+"     files AS".
+"     (SELECT   tablespace_name, COUNT (*) tbs_files,".
+"               SUM (BYTES) total_tbs_bytes".
+"          FROM dba_data_files".
+"      GROUP BY tablespace_name),".
+"     fragments AS".
+"     (SELECT   tablespace_name, COUNT (*) tbs_fragments,".
+"               SUM (BYTES) total_tbs_free_bytes,".
+"               MAX (BYTES) max_free_chunk_bytes".
+"          FROM dba_free_space".
+"      GROUP BY tablespace_name),".
+"     AUTOEXTEND AS".
+"     (SELECT   tablespace_name, SUM (size_to_grow) total_growth_tbs".
+"          FROM (SELECT   tablespace_name, SUM (maxbytes) size_to_grow".
+"                    FROM dba_data_files".
+"                   WHERE autoextensible = 'YES'".
+"                GROUP BY tablespace_name".
+"                UNION".
+"                SELECT   tablespace_name, SUM (BYTES) size_to_grow".
+"                    FROM dba_data_files".
+"                   WHERE autoextensible = 'NO'".
+"                GROUP BY tablespace_name)".
+"      GROUP BY tablespace_name)".
+"SELECT a.tablespace_name,".
+"       (files.total_tbs_bytes - fragments.total_tbs_free_bytes".
+"       ) total_used_space,".
+"       AUTOEXTEND.total_growth_tbs max_size_of_tablespace,".
+"       (  (  (  AUTOEXTEND.total_growth_tbs".
+"              - (AUTOEXTEND.total_growth_tbs - fragments.total_tbs_free_bytes".
+"                )".
+"             )".
+"           / AUTOEXTEND.total_growth_tbs".
+"          )".
+"        * 100".
+"       ) total_auto_used_pct".
+"  FROM dba_tablespaces a, files, fragments, AUTOEXTEND, tbs_auto".
+" WHERE a.tablespace_name = files.tablespace_name".
+"   AND a.tablespace_name = fragments.tablespace_name".
+"   AND a.tablespace_name = AUTOEXTEND.tablespace_name".
+"   AND a.tablespace_name = tbs_auto.tablespace_name(+)".
+"ORDER BY 1";
 my $where_clause = "";
+
+my $check_ts_query = $query_current ? $check_ts_query_current : $check_ts_query_autoextend;
 
 if ($list_tablespaces) {
 	print "UNKNOWN - Listing all tablespaces.\n";
@@ -78,7 +130,7 @@ sub trim($) {
 
 open (SQL, "sqlplus -s $user/$password@\\(DESCRIPTION=\\(ADDRESS=\\(PROTOCOL=TCP\\)\\(Host=$host\\)\\(Port=$port\\)\\)\\(CONNECT_DATA=\\(SID=$sid\\)\\)\\) << EOF
 $set_pagesize
-set numformat 999999999.9
+set numformat 9999999999999.9
 $check_ts_query;
 EOF |") or die;
 
