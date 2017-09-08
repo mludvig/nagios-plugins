@@ -554,14 +554,15 @@ sub main()
 
 	# Check if --master == SOA->master
 	# (eventually use master from SOA if no --master was set)
+	my $soa_master = $soa->mname;
 	if ($master) {
-		if ($master ne $soa->{mname}) {
-			append_warning("master: $master does not match SOA master $soa->{mname}\n", $nowarn_soa_master_match);
+		if ($master ne $soa_master) {
+			append_warning("master: $master does not match SOA master $soa_master\n", $nowarn_soa_master_match);
 		} else {
 			print_info("master: $master matches SOA\n");
 		}
 	} else {
-		$master = $soa->{mname};
+		$master = $soa_master;
 		print_info("master: $master (from SOA)\n");
 	}
 
