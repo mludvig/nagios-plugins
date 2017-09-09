@@ -347,15 +347,19 @@ sub query($$$$)
 	return ($ret, undef) if (@$ret > 0);
 
 	@ns_old = $res->nameservers;
-	if ($nameservers) {
+	if (not arrays_equal(\@ns_old, $nameservers)) {
 		$res->nameservers(@$nameservers);
 		print_debug("Nameservers set to: ".join(",", @$nameservers)."\n");
 	}
+	#else { print_debug("Not changing namservers: ".$res->nameservers."\n"); }
 
 	my $packet = $res->send($name, $type);
-
-	update_cache($cache, $packet);
-	$ret = lookup_cache($cache, $name, $type);
+	if (not $packet or $res->errorstring ne "NOERROR") {
+		append_warning("Query for $name $type failed: ".$res->errorstring."\n", 1);
+	} else {
+		update_cache($cache, $packet);
+		$ret = lookup_cache($cache, $name, $type);
+	}
 
 	$res->nameservers(@ns_old);
 
@@ -479,7 +483,7 @@ sub query_nameserver($$)
 sub main()
 {
 	my (@tmp, $addrlist, $tld_nslist);
-	my ($ret, $packet);
+	my ($ret, $packet, @default_nameservers);
 
 	if (! defined($domain)) {
 		exit_unknown("Parameter --domain is mandatory\n");
@@ -494,15 +498,23 @@ sub main()
 		udp_timeout	=> 10,
 		tcp_timeout	=> 10,
 	);
+	# Back up list of default recursive nameservers for later use
+	# (populated by Net::DNS)
+	@default_nameservers = $res->nameservers;
 
 	if (@nameservers) {
 		$res->nameservers(@nameservers);
+	} else {
+		@nameservers = $res->nameservers;
 	}
-	# Back up list of recursive nameservers for later use
-	# (populated by Net::DNS if no --nameserver used)
-	@nameservers = $res->nameservers;
 
 	print_info("Using recursive nameserver(s): ".join(" ", @nameservers)."\n");
+
+	# Test if recursive nameserver(s) are actually recursive
+	$packet = $res->send(".", "NS");
+	if ($res->errorstring ne "NOERROR") {
+		exit_critical("Nameserver(s) ".join(" ", @nameservers)." reject recursive queries: ".$res->errorstring."\n");
+	}
 
 	($ret, $packet) = query($domain, "SOA", \@nameservers, $cache);
 
